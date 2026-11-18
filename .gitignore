@@ -1,0 +1,6 @@
+# arquivos do Claude Code e temporários
+.claude/
+__*.html
+__*.bin
+# modelos originais pesados (o jogo usa as versões compactas *-model.js)
+*.glb
