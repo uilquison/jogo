@@ -247,6 +247,7 @@ button.go:disabled{filter:grayscale(1) brightness(.6);cursor:wait}
 <script src="exoblade-model.js"></script>
 <script src="ultisword-model.js"></script>
 <script src="gael-model.js"></script>
+<script src="draedon-model.js"></script>
 <script src="tema-musica.js"></script>
 <script>
 
@@ -1155,6 +1156,13 @@ function buildYharim(fig,hide,relic,F){const M=window.YHARIM_MODEL,S=2.7/(2*M.hs
  const m=new THREE.Mesh(geo,mpMaterial(M,{emissiveIntensity:.8,envMapIntensity:1.2}));m.position.set(0,M.hs[1]*S-.04,-.25);m.castShadow=m.receiveShadow=true;fig.g.add(m);
  if(relic)relic.position.set(2.05,2.35,.55); // a Yharim's Ultisword fincada na areia ao lado do rochedo
  F.yharim=m;}
+// --- Draedon no Memorial (Seated Robot.glb → draedon-model.js, 120k triângulos):
+// o modelo já vem sentado no contêiner enferrujado, com o visor e os núcleos azuis; substitui a figura procedural e o contêiner.
+function buildDraedon(fig,hide,relic,F){const M=window.DRAEDON_MODEL,S=2.7/(2*M.hs[1]);fig.hip.visible=false;hide.forEach(o=>o.visible=false);
+ const geo=mpDecode(M,M.parts[0],S);geo.computeVertexNormals();
+ const mat=mpMaterial(M,{emissiveIntensity:1.3,envMapIntensity:1.1});const m=new THREE.Mesh(geo,mat);m.position.set(0,M.hs[1]*S-.03,-.1);m.castShadow=m.receiveShadow=true;fig.g.add(m);
+ if(relic){relic.position.set(1.3,.12,.95);relic.rotation.set(0,.5,Math.PI/2);} // a Exoblade deitada na areia, aos pés do contêiner
+ F.draedon={m,mat};}
 
 // =====================================================================
 //  DOMÍNIO DE XEROC — O FIRMAMENTO ETERNO
@@ -2748,16 +2756,39 @@ function buildXerocModel(X){const M=window.XEROC_MODEL,S=3.5/(2*M.hs[1]),ct=M.ct
  X.mats.push(mat);X.model={R,body,fL,fR};const vis=X.g.visible;setXOp(X,X.op);X.g.visible=vis;}
 // Poses adaptadas ao modelo: o repouso do modelo já é "xícara junto à máscara, mão direita aberta ao lado".
 // Ângulos (x,y,z) do antebraço em torno do cotovelo; cabeça (x = inclinar, y = virar).
-function xerocModelPose(X,dt,t){const Mo=X.model;let L=[.32+Math.sin(t*.8)*.03,0,.05],R=[Math.sin(t*.9)*.05,Math.sin(t*.7)*.06,0],H=[0,0];
- switch(X.pose){case 'sip':L=[-.3,-.35,.1];H=[-.12,0];break;
-  case 'gesture':L=[.38,0,.05];R=[-.25+Math.sin(t*1.6)*.25,.35+Math.sin(t*1.1)*.25,Math.sin(t*2.2)*.15];H=[0,Math.sin(t*.7)*.08];break;
-  case 'open':L=[.4,0,.1];R=[0,.95+Math.sin(t*1.3)*.06,0];H=[.06,Math.sin(t*.6)*.06];break;
-  case 'nod':R=[-.15,.4,0];H=[.25+Math.max(0,Math.sin(t*3))*.12,-.15];break;
-  case 'toast':L=[.58,-.48,0];R=[0,.3,0];H=[-.05,0];break;
-  case 'farewell':R=[0,.2,-1.2+Math.sin(t*5)*.15];H=[-.1,0];break;}
- const k=Math.min(1,dt*3.5),ap=(o,v)=>{o.rotation.x=lerp(o.rotation.x,v[0],k);o.rotation.y=lerp(o.rotation.y,v[1],k);o.rotation.z=lerp(o.rotation.z,v[2],k);};
- ap(Mo.fL,L);ap(Mo.fR,R);X.headG.rotation.x=lerp(X.headG.rotation.x,H[0],k);X.headG.rotation.y=lerp(X.headG.rotation.y,H[1],k);
- Mo.body.rotation.z=Math.sin(t*.6)*.015;Mo.body.rotation.x=Math.sin(t*1.2+.5)*.01;}
+// Movimento com molas amortecidas (acelera, passa um pouco do ponto e assenta) em vez de interpolação linear;
+// a cabeça acompanha a câmera da cutscene (ou o jogador); respiração e balanço; no idle ele dá goles e floreios sozinho;
+// enquanto o texto do diálogo está sendo escrito, cabeça e mão direita acompanham a fala.
+function xSpring(st,key,target,dt,w,z){let s=st[key];if(!s)s=st[key]={x:target,v:0};w=w||7.5;z=z||.62;
+ const n=Math.ceil(dt/.0167);const h=dt/n;for(let i=0;i<n;i++){s.v+=(w*w*(target-s.x)-2*z*w*s.v)*h;s.x+=s.v*h;}return s.x;}
+function xerocModelPose(X,dt,t){const Mo=X.model;dt=Math.min(dt,.05);
+ const A=Mo.anim||(Mo.anim={sp:{},idleT:rnd(4,7),act:null,actT:0,last:X.pose});
+ if(X.pose!==A.last){A.last=X.pose;A.act=null;const s=A.sp.bx;if(s)s.v-=.5;} // leve antecipação do corpo a cada novo gesto
+ // micro-ações no idle: um gole (com sopro no vapor) ou um floreio com a mão aberta
+ if(X.pose==='idle'){A.idleT-=dt;if(!A.act&&A.idleT<=0){A.act=Math.random()<.6?'sip':'flourish';A.actT=0;A.idleT=rnd(6,10);}}else A.act=null;
+ let ak=0;if(A.act){const D=A.act==='sip'?2.8:1.9;A.actT+=dt;ak=Math.sin(Math.min(1,A.actT/D)*Math.PI);ak=ak*ak*(3-2*ak);
+  if(A.act==='sip'&&A.actT>=1.5&&A.actT-dt<1.5)X.blow=.45;if(A.actT>=D)A.act=null;}
+ const talk=typeof DLG!=='undefined'&&DLG.on&&DLG.txt&&DLG.s<DLG.txt.length;
+ const beat=Math.pow(Math.max(0,Math.sin(t*2.4)),3); // ênfase periódica nos gestos
+ let L=[.32+Math.sin(t*.8)*.03,0,.05],R=[Math.sin(t*.9)*.05,Math.sin(t*.7)*.06,0],H=[0,0,0],lean=0;
+ switch(X.pose){case 'sip':L=[-.3,-.35,.1];H=[-.14,0,0];lean=-.03;break;
+  case 'gesture':L=[.38,0,.05];R=[-.3+Math.sin(t*1.6)*.22-beat*.25,.35+Math.sin(t*1.1)*.22,Math.sin(t*2.2)*.12];H=[0,Math.sin(t*.7)*.06,Math.sin(t*.9)*.04];lean=.02*beat;break;
+  case 'open':L=[.4,0,.1];R=[-.05,.95+Math.sin(t*1.3)*.05,-.05];H=[.08,Math.sin(t*.6)*.05,0];lean=.05;break;
+  case 'nod':R=[-.15,.4,0];H=[.22+Math.max(0,Math.sin(t*3))*.14,-.12,.04];lean=.03;break;
+  case 'toast':L=[.58,-.48,0];R=[0,.3,0];H=[-.08,0,-.05];lean=-.02;break;
+  case 'farewell':R=[0,.2,-1.2+Math.sin(t*5)*.18];H=[-.1,0,.06];break;}
+ if(A.act==='sip'){const S=[-.3,-.35,.1];L=L.map((v,i)=>lerp(v,S[i],ak));H[0]=lerp(H[0],-.14,ak);}
+ if(A.act==='flourish'){R=[R[0]-.35*ak,R[1]+.3*ak,R[2]-.25*ak*Math.sin(A.actT*7)];H[2]+=.05*ak;}
+ if(talk){H[0]+=Math.sin(t*9.5)*.03;H[2]+=Math.sin(t*4.1)*.02;if(X.pose!=='farewell'){R[0]+=Math.sin(t*4.3)*.07;R[2]+=Math.sin(t*3.1)*.05;}}
+ // olhar: vira a cabeça para quem está à frente (até ~30°), sem largar o gesto da pose
+ const tgt=CN.on?CN.cam.position:tmpC.set(P.pos.x,P.pos.y+1.6,P.pos.z),hp=X.headG.getWorldPosition(tmpB);
+ const yaw=wrapA(Math.atan2(tgt.x-hp.x,tgt.z-hp.z)-X.g.rotation.y),dist=Math.hypot(tgt.x-hp.x,tgt.z-hp.z);
+ if(Math.abs(yaw)<1.5&&dist<40){H[1]+=clamp(yaw,-.55,.55)*.75;if(X.pose!=='nod')H[0]+=clamp(Math.atan2(hp.y-tgt.y,dist+.01),-.3,.3)*.5;}
+ const sp=A.sp,a=(o,p,v,w,z)=>{o.rotation.x=xSpring(sp,p+'x',v[0],dt,w,z);o.rotation.y=xSpring(sp,p+'y',v[1],dt,w,z);o.rotation.z=xSpring(sp,p+'z',v[2],dt,w,z);};
+ a(Mo.fL,'L',L);a(Mo.fR,'R',R);a(X.headG,'H',H,6,.7);
+ const br=Math.sin(t*1.5);Mo.body.scale.set(1+.007*br,1,1+.009*br);
+ Mo.body.rotation.x=xSpring(sp,'bx',lean+br*.008,dt,5,.45);Mo.body.rotation.z=Math.sin(t*.6)*.016;Mo.body.rotation.y=Math.sin(t*.35)*.04;
+ X.halo.rotation.z+=dt*.25;X.halo.scale.setScalar(1.9*(1+.035*Math.sin(t*2.1)));}
 let XEROC=null;
 function setXOp(X,op){X.op=op;for(const m of X.mats){m.transparent=op<1;m.opacity=op;}X.g.visible=op>.005;}
 function updateXeroc(dt){const X=XEROC;X.t+=dt;const t=X.t;X.g.position.y=X.baseY+Math.sin(t*1.2)*.08;
@@ -2977,7 +3008,7 @@ document.head.insertAdjacentHTML('beforeend',`<style>
 #errbar .eh{margin-top:6px;font:700 12px/1 var(--display);color:#ff6b6b;letter-spacing:.3em}
 #crashbox{position:fixed;left:24px;top:24px;z-index:998;max-width:min(760px,92vw);padding:16px 18px;background:rgba(20,0,0,.86);border:1px solid #ff3b3b;color:#ffd5d5;font:13px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap}
 #horror{position:fixed;inset:0;z-index:999;background:#000;display:flex;align-items:center;justify-content:center}
-#horror canvas{width:100%;height:100%;object-fit:cover}
+#horror canvas{width:100%;height:100%;object-fit:contain}
 #horror .grain{position:absolute;inset:0;width:100%;height:100%;opacity:.13;mix-blend-mode:screen;image-rendering:pixelated}
 </style>`);
 document.body.insertAdjacentHTML('beforeend',`<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="chroma"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/><feOffset id="chR" in="r" dx="8" dy="0" result="r2"/><feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" result="gb"/><feOffset id="chB" in="gb" dx="-6" dy="0" result="gb2"/><feBlend in="r2" in2="gb2" mode="screen"/></filter></svg>`);
@@ -3181,7 +3212,15 @@ function showHorror(){const W=1280,H=720;const wrap=document.createElement('div'
  const g=cv.getContext('2d');drawHorror(g,W,H);
  const gg=gr.getContext('2d'),gi=gg.createImageData(320,180);setInterval(()=>{const d=gi.data;for(let i=0;i<d.length;i+=4){const v=Math.random()*255;d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;}gg.putImageData(gi,0,0);},83);
  const block=e=>{e.preventDefault();e.stopImmediatePropagation();};['keydown','mousedown','wheel','contextmenu'].forEach(t=>addEventListener(t,block,{capture:true,passive:false}));}
-function drawHorror(g,W,H){const R=(a,b)=>a+Math.random()*(b-a);const cx=W/2,cy=H*.44;
+// a tela de terror usa a arte xeroc_jumpscare.jpg (pré-carregada desde o início, pois o crash congela o jogo);
+// se a imagem não estiver na pasta, cai no desenho procedural da máscara rachada.
+const JUMP_IMG=new Image();JUMP_IMG.src='xeroc_jumpscare.jpg';
+function drawHorror(g,W,H){
+ if(JUMP_IMG.complete&&JUMP_IMG.naturalWidth){const iw=JUMP_IMG.naturalWidth,ih=JUMP_IMG.naturalHeight,s=Math.max(W/iw,H/ih);
+  g.fillStyle='#000';g.fillRect(0,0,W,H);g.drawImage(JUMP_IMG,(W-iw*s)/2,(H-ih*s)/2,iw*s,ih*s);
+  const v=g.createRadialGradient(W/2,H*.45,H*.35,W/2,H*.45,H*.95);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(0,0,0,.6)');g.fillStyle=v;g.fillRect(0,0,W,H);return;}
+ drawHorrorProc(g,W,H);}
+function drawHorrorProc(g,W,H){const R=(a,b)=>a+Math.random()*(b-a);const cx=W/2,cy=H*.44;
  g.fillStyle='#000';g.fillRect(0,0,W,H);
  // metade da máscara (losango alongado, como o rosto de Xeroc), rachada no centro
  const mh=H*1.6,mw=mh*.6;const crack=[];for(let y=-mh/2;y<=mh/2;y+=mh/22)crack.push([R(-14,14)+(Math.abs(y)<mh*.18?(y<0?-1:1)*0:0),y]);
@@ -3388,11 +3427,14 @@ function buildRelic(key){const g=new THREE.Group();const grip=stdM(0x1c1917,{rou
   g.add(mesh(new THREE.CylinderGeometry(.045,.05,.66,8),grip,0,.04,0));
   g.add(mesh(new THREE.OctahedronGeometry(.1,0),gold,0,-.34,0));}
  g.position.y=-.32;if(relicModelsReady)relicSkin(g,key);else RELIC_LIVE.push([g,key]);return g;}
-// Modelos 3D das relíquias: Exoblade (Fantasy Sword (1).glb), Yharim's Ultisword (Fantasy Sword.glb), Gael's Greatsword (Sword.glb).
+// Modelos 3D das relíquias. Atenção: os arquivos ficaram com nomes trocados —
+// exoblade-model.js (EXOBLADE_MODEL) é a espada vermelha flamejante → Yharim's Ultisword (Yharim);
+// ultisword-model.js (ULTISWORD_MODEL) é a lâmina curva arco-íris → Exoblade (Draedon);
+// gael-model.js (Sword.glb) → Gael's Greatsword (Calamitas).
 // Cada espada vem deitada na diagonal do plano XY: grip = centro da empunhadura, ang = inclinação do cabo a partir de +Y.
 // Depois do ajuste o cabo fica em +Y com a empunhadura na palma, como a relíquia procedural (que vira reserva).
-const RELIC_MODEL={PRISMA:{v:'EXOBLADE_MODEL',grip:[-.66,-.64],ang:.76,scale:1.37,ei:1.4},
- COROA:{v:'ULTISWORD_MODEL',grip:[-.715,-.78],ang:.80,scale:1.1,ei:1.4},
+const RELIC_MODEL={PRISMA:{v:'ULTISWORD_MODEL',grip:[-.715,-.78],ang:.80,scale:1.1,ei:1.4},
+ COROA:{v:'EXOBLADE_MODEL',grip:[-.66,-.64],ang:.76,scale:1.37,ei:1.4},
  CINZAS:{v:'GAEL_MODEL',grip:[-.755,-.582],ang:.99,scale:1.38,ei:1.3}};
 const RELIC_GEO={},RELIC_LIVE=[];let relicModelsReady=false;
 function relicSkin(g,key){const R=RELIC_GEO[key];if(!R||g.userData.model)return;g.children.forEach(c=>c.visible=false);
@@ -3582,6 +3624,7 @@ function buildCoast(){const root=new THREE.Group();root.position.copy(MEM.MO);ro
  ar.head.add(mesh(new THREE.BoxGeometry(.36,.32,.38),stdM(0x1e293b,{metalness:.7,roughness:.4}),0,.12,0));
  const visor=mesh(new THREE.PlaneGeometry(.3,.08),new THREE.MeshBasicMaterial({color:C(.15,1.4,2.2)}),0,.14,.2);ar.head.add(visor);F.visor=visor;
  plant(ar.g,'PRISMA',.55,.86,.15,0,.2,Math.PI/2,1);
+ if(window.DRAEDON_MODEL&&window.MeshoptDecoder)MeshoptDecoder.ready.then(()=>buildDraedon(ar,ar.g.children.filter(c=>c!==ar.hip&&!c.children.length),npcRel.PRISMA,F)).catch(e=>console.warn('draedon:',e));
  // o Devorador de Deuses — semi-submerso na maré rasa, armadura com pulso violeta/ciano apagado
  const sp=new THREE.Group();sp.position.set(9,0,-12);sp.rotation.y=-.64;root.add(sp);F.serpent=sp;
  const arm=stdM(0x1e1b4b,{metalness:.8,roughness:.35}),n1=stdM(0x1e1b4b,{emissive:0x7c3aed,emissiveIntensity:.3,metalness:.6,roughness:.4}),n2=stdM(0x1e1b4b,{emissive:0x0891b2,emissiveIntensity:.3,metalness:.6,roughness:.4});F.serpNeon=[n1,n2];
@@ -3778,6 +3821,7 @@ function coastTick(dt,t){const F=MEM.fx,O=MEM.MO;
  for(const r of F.roses)if(Math.random()<.06){const p=r.getWorldPosition(tmpA);emit(p.x,p.y+.05,p.z,rnd(-.05,.05),rnd(.25,.5),rnd(-.05,.05),C(2.6,.4,.2),.2,rnd(2.5,4));}
  if(Math.random()<.12){const h=F.witchHead.localToWorld(tmpA.set(rnd(-.06,.06),.06,.2));emit(h.x,h.y,h.z,0,-rnd(.15,.35),0,C(2.6,.25,.2),.15,rnd(1.4,2.2));}
  F.visor.material.color.setRGB(.15,Math.random()<.12?.3:1.4+Math.random()*.4,Math.random()<.12?.4:2.2);
+ if(F.draedon)F.draedon.mat.emissiveIntensity=Math.random()<.04?.35:1.15+.3*Math.sin(t*1.7); // núcleos azuis pulsando, com falhas de estática
  F.dragon.scale.y=1+Math.sin(t*1.1)*.03;F.dragonHead.rotation.x=Math.sin(t*1.1)*.03;
  if((t%4.2)<dt){const n=F.nostril.getWorldPosition(tmpA);for(let k=0;k<14;k++)emit(n.x,n.y,n.z,rnd(-.4,.4),rnd(.1,.5),rnd(-.4,.4),Math.random()<.5?C(.6,.55,.5):C(2.2,.7,.2),rnd(.2,.4),rnd(1.5,2.6));}
  F.serpNeon.forEach((m,i)=>m.emissiveIntensity=.15+.25*(.5+.5*Math.sin(t*1.4+i*1.7)));F.serpent.position.y=Math.sin(t*.7)*.08;
