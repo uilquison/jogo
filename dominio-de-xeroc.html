@@ -248,6 +248,7 @@ button.go:disabled{filter:grayscale(1) brightness(.6);cursor:wait}
 <script src="ultisword-model.js"></script>
 <script src="gael-model.js"></script>
 <script src="draedon-model.js"></script>
+<script src="player-anims.js"></script>
 <script src="tema-musica.js"></script>
 <script>
 
@@ -920,6 +921,62 @@ function applyKnight(M){const S=2.25/(M.hs[1]*2),W=M.J.waist;
  coreLight.position.set(0,(J.neck.y-J.waist.y)*.6,.5);
  player.userData.knight=true;}
 if(window.KNIGHT_MODEL&&window.MeshoptDecoder)MeshoptDecoder.ready.then(()=>applyKnight(window.KNIGHT_MODEL)).catch(e=>console.warn('cavaleiro:',e));
+// --- animações Mixamo do jogador (player-anims.js ← Run.fbx e Draw Sword 1.fbx) ---
+// Cada quadro guarda as posições das juntas do esqueleto Mixamo; aqui elas viram rotações das juntas do cavaleiro
+// (corpo, tronco, cabeça, ombro/cotovelo, quadril/joelho): a direção de cada osso Mixamo define a menor rotação que leva
+// o osso do cavaleiro da pose de repouso até ela. Os bonecos com proporções diferentes funcionam porque só direções são usadas.
+const MX={built:null,kn:null,saved:[],savedY:undefined};
+function mxBuild(){const A=window.PLAYER_ANIMS;if(!A)return null;const V=a=>new V3(a[0],a[1],a[2]),m=new THREE.Matrix4(),up=new V3(0,1,0);
+ const basis=(side,upv)=>{const X=side.normalize(),Y=upv.addScaledVector(X,-upv.dot(X)).normalize(),Z=new V3().crossVectors(X,Y);return new THREE.Quaternion().setFromRotationMatrix(m.makeBasis(X,Y,Z));};
+ const rBodyI=basis(legs[1].hip.position.clone().sub(legs[0].hip.position),up.clone()).invert();
+ const rTorsoI=basis(arms[0].sh.position.clone().sub(arms[1].sh.position),head.position.clone()).invert();
+ const rSh=arms.map(a=>a.el.position.clone().normalize()),rEl=arms.map(a=>a.hand.position.clone().normalize());
+ const rHip=legs.map(l=>l.knee.position.clone().normalize()),rKn=new V3(0,-1,0);
+ const hipH=(legs[0].hip.position.y+legs[1].hip.position.y)/2,out={};
+ for(const key in A){const a=A[key],J=a.j;
+  const P0=n=>V(J[n].slice(0,3)),L0=P0('LeftUpLeg').distanceTo(P0('LeftLeg'))+P0('LeftLeg').distanceTo(P0('LeftFoot'))+.045,sc=hipH/L0;
+  const fr=[];
+  for(let f=0;f<a.n;f++){const p=n=>V(J[n].slice(f*3,f*3+3));
+   const bw=basis(p('LeftUpLeg').sub(p('RightUpLeg')),p('Spine').sub(p('Hips'))).multiply(rBodyI);
+   const tw=basis(p('LeftArm').sub(p('RightArm')),p('Neck').sub(p('Spine'))).multiply(rTorsoI);
+   const bwi=bw.clone().invert(),twi=tw.clone().invert(),sh=[],el=[],hip=[],kn=[];
+   const hd=new THREE.Quaternion().setFromUnitVectors(up,p('HeadTop_End').sub(p('Neck')).normalize().applyQuaternion(twi));
+   [['Left',0],['Right',1]].forEach(([s,i])=>{sh[i]=new THREE.Quaternion().setFromUnitVectors(rSh[i],p(s+'ForeArm').sub(p(s+'Arm')).normalize().applyQuaternion(twi));
+    el[i]=new THREE.Quaternion().setFromUnitVectors(rEl[i],p(s+'Hand').sub(p(s+'ForeArm')).normalize().applyQuaternion(tw.clone().multiply(sh[i]).invert()));});
+   [['Right',0],['Left',1]].forEach(([s,i])=>{hip[i]=new THREE.Quaternion().setFromUnitVectors(rHip[i],p(s+'Leg').sub(p(s+'UpLeg')).normalize().applyQuaternion(bwi));
+    kn[i]=new THREE.Quaternion().setFromUnitVectors(rKn,p(s+'Foot').sub(p(s+'Leg')).normalize().applyQuaternion(bw.clone().multiply(hip[i]).invert()));});
+   fr.push({body:bw,torso:bwi.clone().multiply(tw),head:hd,sh,el,hip,kn,y:((p('LeftUpLeg').y+p('RightUpLeg').y)/2-L0)*sc});}
+  out[key]={fr,n:a.n,fps:a.fps,dur:a.dur,stride:a.travel*sc};}
+ return out;}
+const MXS={body:new THREE.Quaternion(),torso:new THREE.Quaternion(),head:new THREE.Quaternion(),y:0,
+ sh:[new THREE.Quaternion(),new THREE.Quaternion()],el:[new THREE.Quaternion(),new THREE.Quaternion()],hip:[new THREE.Quaternion(),new THREE.Quaternion()],kn:[new THREE.Quaternion(),new THREE.Quaternion()]};
+function mxSample(an,t,loop,o){const n=an.n;let x=t*an.fps;if(loop){x%=n-1;if(x<0)x+=n-1;}else x=clamp(x,0,n-1);const i=Math.min(n-2,Math.floor(x)),u=x-i,A=an.fr[i],B=an.fr[i+1];
+ for(const k of ['body','torso','head'])o[k].copy(A[k]).slerp(B[k],u);
+ for(const k of ['sh','el','hip','kn'])for(let j=0;j<2;j++)o[k][j].copy(A[k][j]).slerp(B[k][j],u);o.y=lerp(A.y,B.y,u);return o;}
+// as molas da animação procedural continuam rodando por baixo: no início de cada quadro a pose delas é devolvida
+function mxRestore(){for(const s of MX.saved)s[0].rotation.set(s[1],s[2],s[3]);if(MX.savedY!==undefined)body.position.y=MX.savedY;MX.saved.length=0;MX.savedY=undefined;}
+const mxQY=new THREE.Quaternion(),mxQ=new THREE.Quaternion();
+function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==kn){MX.built=mxBuild();MX.kn=kn;}const B=MX.built;if(!B)return;
+ // corrida: substitui a passada procedural no chão (golpes, bloqueio, dash, mira e salto têm prioridade)
+ const runOk=c.ground&&!c.atk&&!P.blocking&&P.dashT<=0&&!c.aim&&!P.dead;
+ P.mxRun=lerp(P.mxRun||0,runOk?smooth(.08,.4,c.runAmt):0,Math.min(1,dt*10));
+ if(B.run){const r=B.run;P.mxPh=((P.mxPh||0)+dt/r.dur*clamp(c.hs/(r.stride/r.dur),.75,1.7))%1;}
+ // saque (Draw Sword 1): só a parte de cima do corpo; ao fim do clipe a mão está no cabo → a arma aparece e o braço volta à guarda
+ let dw=0;if(P.drawT>=0){const d=B.draw?B.draw.dur/.9:.4;P.drawT+=dt;if(c.atk&&P.drawT<d)P.drawT=d;
+  if(P.drawT>=d&&!P.drawShown)drawReveal();
+  dw=P.drawT<d?smooth(0,.07,P.drawT):1-smooth(d+.05,d+.3,P.drawT);if(P.drawT>d+.3){P.drawT=-1;dw=0;}}
+ const wr=P.mxRun,wa=wr*(c.fight&&TWOH[c.wp]?0:1); // armas de duas mãos em combate mantêm os braços na empunhadura
+ if(wr<.002&&(dw<.002||!B.draw))return;
+ for(const o of [body,torso,head,arms[0].sh,arms[1].sh,arms[0].el,arms[1].el,legs[0].hip,legs[1].hip,legs[0].knee,legs[1].knee])MX.saved.push([o,o.rotation.x,o.rotation.y,o.rotation.z]);
+ MX.savedY=body.position.y;
+ if(wr>.002&&B.run){const s=mxSample(B.run,P.mxPh*B.run.dur,true,MXS);
+  mxQY.setFromAxisAngle(UP_,body.rotation.y);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wr);body.position.y=lerp(body.position.y,s.y,wr);
+  torso.quaternion.slerp(s.torso,wr);head.quaternion.slerp(s.head,wr*.8);
+  for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wr);legs[j].knee.quaternion.slerp(s.kn[j],wr);
+   if(wa>.002){arms[j].sh.quaternion.slerp(s.sh[j],wa);arms[j].el.quaternion.slerp(s.el[j],wa);}}}
+ if(dw>.002&&B.draw){const s=mxSample(B.draw,Math.max(0,P.drawT)*.9,false,MXS);
+  torso.quaternion.slerp(s.torso,dw*.85);head.quaternion.slerp(s.head,dw*.6);
+  for(let j=0;j<2;j++){arms[j].sh.quaternion.slerp(s.sh[j],dw);arms[j].el.quaternion.slerp(s.el[j],dw);}}}
 // --- utilitários dos modelos compactos (*-model.js): decodifica uma parte (meshopt) e monta o material PBR com as texturas ---
 function mpDecode(M,p,S){S=S||1;const b64=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
  const vb=new Uint8Array(p.n*12);MeshoptDecoder.decodeVertexBuffer(vb,p.n,12,b64(p.vb));const ib=new Uint32Array(p.ni);MeshoptDecoder.decodeIndexBuffer(new Uint8Array(ib.buffer),p.ni,4,b64(p.ib));
@@ -1402,7 +1459,10 @@ const scarMesh=(()=>{const g=new THREE.Group();const s=new THREE.Shape();s.moveT
 WEAP[0].mesh=chronoMesh;WEAP[1].mesh=weaponMeshes[0];WEAP[2].mesh=weaponMeshes[2];WEAP[3].mesh=clayMesh;WEAP[4].mesh=weaponMeshes[1];WEAP[5].mesh=scarMesh;
 function setWeapon(i,force){if(i===P.weapon&&!force)return;if(P.invLock>0&&!force){toast('INVENTÁRIO BLOQUEADO<small>Os ícones ainda estão caindo</small>',1.2);return;}
  P.weapon=i;WEAP.forEach((W,k)=>{W.mesh.visible=k===i;$('w'+k).classList.toggle('on',k===i);});
- const wp=new V3();WEAP[i].mesh.getWorldPosition(wp);burst(wp,WEAP[i].col,18,4,.4,.5);}
+ // troca feita pelo jogador: toca o "Draw Sword" (a arma só aparece quando a mão alcança o cabo); trocas forçadas (cutscenes) são instantâneas
+ if(!force&&window.PLAYER_ANIMS){P.drawT=0;P.drawShown=false;WEAP[i].mesh.visible=false;return;}
+ P.drawT=-1;const wp=new V3();WEAP[i].mesh.getWorldPosition(wp);burst(wp,WEAP[i].col,18,4,.4,.5);}
+function drawReveal(){P.drawShown=true;const W=WEAP[P.weapon];if(!W)return;W.mesh.visible=true;const wp=new V3();W.mesh.getWorldPosition(wp);burst(wp,W.col,18,4,.4,.5);sfx('slash');}
 setWeapon(0,true);
 
 // ---------- texto flutuante / toast ----------
@@ -1793,7 +1853,7 @@ function atkKeys(w,c){
  return c%2?[{rx:-2.4,rz:-.8,elR:-.8,wx:1.4,wz:-.6,tY:1.0},{rx:-1.1,rz:.5,elR:-.3,wx:1.4,wz:.6,tY:-1.1},{lunge:.4}]
   :[{rx:-1.1,rz:.6,elR:-.3,wx:1.4,wz:.6,tY:-1.0},{rx:-2.2,rz:-.7,elR:-.6,wx:1.4,wz:-.6,tY:1.0},{lunge:.4}];}
 const ADUR=[.42,.42,.34,.62,.3,.44];
-function animatePlayer(dt,hs){const t=clock.elapsedTime;dt=Math.min(dt,.05);const wp=P.weapon;
+function animatePlayer(dt,hs){mxRestore();const t=clock.elapsedTime;dt=Math.min(dt,.05);const wp=P.weapon;
  const runAmt=P.flying?0:clamp(hs/18,0,1);P.walkPh+=dt*hs*.5*(P.onGround?1:.25);const s=Math.sin(P.walkPh);
  const air=!P.onGround&&!P.flying,fight=P.combatT>0||lockOn||(G.boss&&G.boss.active);
  P.landK=Math.max(0,(P.landK||0)-dt*2.6);const land=P.landK;
@@ -1868,6 +1928,7 @@ function animatePlayer(dt,hs){const t=clock.elapsedTime;dt=Math.min(dt,.05);cons
  spr(legs[0].hip,'rotation','x',q.hR,lf,.7,dt);spr(legs[1].hip,'rotation','x',q.hL,lf,.7,dt);
  spr(legs[0].knee,'rotation','x',q.kR,lf+1,.7,dt);spr(legs[1].knee,'rotation','x',q.kL,lf+1,.7,dt);
  spr(legs[0].hip,'rotation','z',q.zR,3,.8,dt);spr(legs[1].hip,'rotation','z',q.zL,3,.8,dt);
+ mxApply(dt,{ground:P.onGround&&!P.flying,atk,aim:P.aiming&&wp===4,runAmt,hs,fight,wp});
  const pulse=.5+.5*Math.sin(t*4);core.scale.setScalar(1+pulse*.25);coreGlow.material.opacity=.55+pulse*.45;coreLight.intensity=1.6+pulse*1.6;coreMat.color.setRGB(2.2+pulse,.6+pulse*.3,3.2+pulse);
  capeMat.uniforms.uTime.value=t;capeMat.uniforms.uSpeed.value=lerp(capeMat.uniforms.uSpeed.value,clamp(Math.hypot(P.vel.x,P.vel.y,P.vel.z)/30,0,1),dt*4);capeMat.uniforms.uFly.value=lerp(capeMat.uniforms.uFly.value,P.flying?1:0,dt*3);
  galaxyBladeMat.uniforms.uTime.value=t;scarMat.uniforms.uTime.value=t;
