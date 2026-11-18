@@ -965,8 +965,12 @@ function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==k
  let dw=0;if(P.drawT>=0){const d=B.draw?B.draw.dur/.9:.4;P.drawT+=dt;if(c.atk&&P.drawT<d)P.drawT=d;
   if(P.drawT>=d&&!P.drawShown)drawReveal();
   dw=P.drawT<d?smooth(0,.07,P.drawT):1-smooth(d+.05,d+.3,P.drawT);if(P.drawT>d+.3){P.drawT=-1;dw=0;}}
+ // idle (Orc Idle): parado no chão e fora de combate; em combate fica a guarda de cada arma
+ const idleOk=c.ground&&!c.fight&&!c.atk&&!P.blocking&&P.dashT<=0&&!c.aim&&!P.dead&&c.runAmt<.12;
+ P.mxIdle=lerp(P.mxIdle||0,idleOk?1:0,Math.min(1,dt*(idleOk?3:10)));P.mxIt=(P.mxIt||0)+dt;
  const wr=P.mxRun,wa=wr*(c.fight&&TWOH[c.wp]?0:1); // armas de duas mãos em combate mantêm os braços na empunhadura
- if(wr<.002&&(dw<.002||!B.draw))return;
+ const wi=B.idle?P.mxIdle*(1-wr):0;
+ if(wr<.002&&wi<.002&&(dw<.002||!B.draw))return;
  for(const o of [body,torso,head,arms[0].sh,arms[1].sh,arms[0].el,arms[1].el,legs[0].hip,legs[1].hip,legs[0].knee,legs[1].knee])MX.saved.push([o,o.rotation.x,o.rotation.y,o.rotation.z]);
  MX.savedY=body.position.y;
  if(wr>.002&&B.run){const s=mxSample(B.run,P.mxPh*B.run.dur,true,MXS);
@@ -974,6 +978,10 @@ function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==k
   torso.quaternion.slerp(s.torso,wr);head.quaternion.slerp(s.head,wr*.8);
   for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wr);legs[j].knee.quaternion.slerp(s.kn[j],wr);
    if(wa>.002){arms[j].sh.quaternion.slerp(s.sh[j],wa);arms[j].el.quaternion.slerp(s.el[j],wa);}}}
+ if(wi>.002){const s=mxSample(B.idle,P.mxIt,true,MXS);
+  mxQY.setFromAxisAngle(UP_,body.rotation.y);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wi);body.position.y=lerp(body.position.y,s.y,wi);
+  torso.quaternion.slerp(s.torso,wi);head.quaternion.slerp(s.head,wi*.85);
+  for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wi);legs[j].knee.quaternion.slerp(s.kn[j],wi);arms[j].sh.quaternion.slerp(s.sh[j],wi);arms[j].el.quaternion.slerp(s.el[j],wi);}}
  if(dw>.002&&B.draw){const s=mxSample(B.draw,Math.max(0,P.drawT)*.9,false,MXS);
   torso.quaternion.slerp(s.torso,dw*.85);head.quaternion.slerp(s.head,dw*.6);
   for(let j=0;j<2;j++){arms[j].sh.quaternion.slerp(s.sh[j],dw);arms[j].el.quaternion.slerp(s.el[j],dw);}}}
@@ -1784,7 +1792,8 @@ function updatePlayer(dt){
  if(P.dashT>0){const s=8/.12;P.vel.x=P.dashDir.x*s;P.vel.z=P.dashDir.z*s;P.vel.y=P.flying?P.dashDir.y*s:Math.max(P.vel.y,0);P.ghostT-=dt;if(P.ghostT<=0){P.ghostT=.035;spawnGhost();}}
  else if(P.flying){const sp=(P.blocking?14:30)*spMul;const cf=camFwd();const d=new V3();if(fw)d.addScaledVector(cf,fw);if(sd)d.addScaledVector(r,sd);
   if(d.lengthSq())d.normalize();d.multiplyScalar(sp);if(keys.Space)d.y+=20;if(keys.KeyC)d.y-=20;P.vel.lerp(d,Math.min(1,dt*5));
-  P.fly-=dt;if(P.fly<=0){P.fly=0;P.flying=false;toast('VOO ESGOTADO<small>Toque o solo para recarregar</small>',1.3);}
+  if(G.boss&&G.boss.active)P.fly-=dt; // fora de combate o céu é navegável: o voo só se gasta com um chefe ativo
+  if(P.fly<=0){P.fly=0;P.flying=false;toast('VOO ESGOTADO<small>Toque o solo para recarregar</small>',1.3);}
   if(Math.random()<.7)emit(P.pos.x+rnd(-.3,.3),P.pos.y+1.2,P.pos.z+rnd(-.3,.3),-P.vel.x*.1,-1,-P.vel.z*.1,Math.random()<.5?COL.purple:COL.cyan,.7,.5);}
  else{const sp=(P.blocking?8:18)*spMul;const acc=P.onGround?14:5;P.vel.x=lerp(P.vel.x,mv.x*sp,Math.min(1,dt*acc));P.vel.z=lerp(P.vel.z,mv.z*sp,Math.min(1,dt*acc));P.vel.y-=grav*dt;if(P.vel.y<-60)P.vel.y=-60;}
  P.pos.addScaledVector(P.vel,dt);
@@ -2733,7 +2742,8 @@ function bossDeath(B){if(B.dying)return;B.dying=true;B.active=false;B.hp=0;clear
   {d:2.6,fov:62,ev:[[.55,()=>explode(B)]],cam(k,t,O,L){B.focus(L);const d=tmpA.subVectors(P.pos,L).setY(0).normalize();O.copy(L).addScaledVector(d,48+k*8).add(tmpB.set(10,10+k*4,0));}},
   {d:5,fov:46,on(){cineNarr(B.deathLine,B.id==='vaelis');sfx('chime');restorePlayer();},upd:embers,cam:camDolly(v3(6,PLAT_Y+1.8,46),v3(9,PLAT_Y+12,56),v3(0,PLAT_Y+1.6,38),v3(0,PLAT_Y+2.4,36))},
   {d:1.5,fov:46,on(){cineNarr(null);fadeTo(1,1.2);},upd:embers,cam:camFix(v3(9,PLAT_Y+12,56),v3(0,PLAT_Y+2.4,36))}],
-  onEnd(){B.g.visible=false;B.dying=false;G.boss=null;if(G.idx===5)afterDevorador();else if(G.idx===6)finalChoice();else beginBoss(G.idx+1);}});}
+  // o próximo guardião não desce mais direto: o Arauto do Vazio libera o selo seguinte (depois do Devorador, a provação do altar leva à emboscada / à Lança)
+  onEnd(){B.g.visible=false;B.dying=false;G.boss=null;if(G.idx===6){HER.st='ALL_CLEARED';herSave();finalChoice();}else heraldBossDown(G.idx);}});}
 function phaseCine(B,kind){const F=o=>B.focus(o);
  if(kind==='tri')playCine({blendIn:.4,blendOut:.6,shots:[
   {d:1.7,fov:52,on(){sfx('roar',.5);B.jawT=1;cineNarr('INSTÂNCIA TRIPLA PARALELA // ALPHA · BETA · GAMMA',true);},cam:camOrbit(F,42,10,0,.5)},
@@ -2756,7 +2766,7 @@ function openingCine(){placePlayer();P.pos.y=PLAT_Y+70;player.position.copy(P.po
    on(){this.landed=false;sfx('whoosh',1.8);},cam:camFix(v3(14,PLAT_Y+1,52),v3(0,PLAT_Y+5,38))},
   {d:6,fov:40,on(){cineNarr('Deuses e criadores caíram sob tua lâmina. Vejamos se teu aço resiste ao colapso da própria realidade.');},cam:camOrbit(o=>o.copy(P.pos).add(v3(0,1.6,0)),6,.7,2.6,3.5),off(){cineNarr(null);}},
   {d:1.1,fov:40,on(){fadeTo(1,.9);},cam:camOrbit(o=>o.copy(P.pos).add(v3(0,1.6,0)),6,.7,3.5,3.6)}],
-  onEnd(){beginBoss(DBG.boss);}});}
+  onEnd(){heraldOpen();}});}
 
 // ---------- Xeroc: modelo procedural ----------
 function makeXeroc(){const g=new THREE.Group();g.visible=false;scene.add(g);
@@ -2931,7 +2941,7 @@ function onParryPress(){if(WEAP[P.weapon].id!=='claymore'||CN.on)return;const B=
 let hudT=0;
 function updateHUD(dt){const B=G.boss;
  $('hpFill').style.transform=`scaleX(${P.hp/P.maxHp})`;$('hpTxt').textContent=Math.ceil(P.hp);$('hpCut').style.width=P.eraseT>0?'10%':'0';
- $('flyFill').style.transform=`scaleX(${P.fly/FLY_MAX})`;$('flyTxt').textContent=P.flyLock>0?'TRAVADO':P.fly.toFixed(1)+'s';
+ $('flyFill').style.transform=`scaleX(${P.fly/FLY_MAX})`;$('flyTxt').textContent=P.flyLock>0?'TRAVADO':B&&B.active?P.fly.toFixed(1)+'s':'LIVRE';
  $('rageFill').style.transform=`scaleX(${P.rage/100})`;$('adrFill').style.transform=`scaleX(${P.adr/100})`;
  $('rageKey').classList.toggle('ready',P.rage>=100&&P.rageT<=0);$('adrKey').classList.toggle('ready',P.adr>=100&&P.adrT<=0&&P.eraseT<=0);$('adrKey').classList.toggle('lockd',P.eraseT>0);
  let bh='';if(P.rageT>0)bh+=`<div class="buff r">RAIVA · +50% CORPO A CORPO · ${P.rageT.toFixed(1)}s</div>`;if(P.adrT>0)bh+=`<div class="buff a">ADRENALINA · 3× DANO · ${P.adrT.toFixed(1)}s</div>`;
@@ -3757,6 +3767,7 @@ function memClose(){MEM.dlg=null;MEM.offer=null;$('memDlg').hidden=true;}
 function memInteract(){if(MEM.busy)return;const D=MEM.dlg;
  if(D){if(D.s<D.txt.length){D.s=D.txt.length;$('memTxt').textContent=D.txt;return;}if(MEM.offer){memAccept();return;}memClose();return;}
  const n=MEM.near;if(!n)return;
+ if(n.her)return heraldInteract(n);
  if(n.id==='sword')return memEnter();
  if(n.id==='beam')return memLeave(false);
  if(n.id==='grave'){MEM.read=true;sfx('chime');return memSay(MEM_LINES.grave.who,MEM_LINES.grave.text,{at:n.p});}
@@ -3895,7 +3906,8 @@ function memTick(dt){MEM.t+=dt;const t=MEM.t;statueTick(dt,t);if(MEM.inside){coa
  let near=null;
  if(!CN.on&&!P.dead&&!MEM.busy){
   if(MEM.inside){let bd=1e9;for(const it of MEM.inter){const d=Math.hypot(P.pos.x-it.p.x,P.pos.z-it.p.z);if(d<it.r&&Math.abs(P.pos.y-it.p.y)<3.5&&d<bd){bd=d;near=it;}}}
-  else{const I=MEM.isl;if(Math.hypot(P.pos.x-I.x,P.pos.z-I.z)<5.5&&Math.abs(P.pos.y-I.top)<4)near={id:'sword',label:'Tocar a lâmina esquecida'};}}
+  else{const I=MEM.isl;if(Math.hypot(P.pos.x-I.x,P.pos.z-I.z)<5.5&&Math.abs(P.pos.y-I.top)<4)near={id:'sword',label:'Tocar a lâmina esquecida'};
+   if(!near&&typeof heraldNear==='function')near=heraldNear();}}
  MEM.near=near;const pr=$('memPrompt'),show=!!near&&!MEM.dlg;pr.hidden=!show;if(show&&pr._l!==near.label){pr.innerHTML='<kbd>E</kbd>'+near.label;pr._l=near.label;}
  const D=MEM.dlg;if(D){if(D.s<D.txt.length){D.s=Math.min(D.txt.length,D.s+dt*42);$('memTxt').textContent=D.txt.slice(0,Math.floor(D.s));}
   if(D.at&&Math.hypot(P.pos.x-D.at.x,P.pos.z-D.at.z)>7)memClose();}
@@ -3905,6 +3917,267 @@ addEventListener('keydown',e=>{if(!started||paused||e.repeat||P.dead||DLG.on||EN
  if(e.code==='KeyE')memInteract();else if(e.code==='KeyQ'&&MEM.offer)memDecline();else if(e.code==='KeyG')legacyTrigger();});
 
 buildStatue();buildCoast();
+
+// =====================================================================
+//  O ARAUTO DO VAZIO — os sete Selos de Ressonância
+//  Entre um chefe e outro o céu fica livre (voo sem limite fora de combate). O Arauto, na borda norte do santuário,
+//  entrega a provação do próximo selo; concluída, o selo se rompe e o jogador volta para invocar o guardião.
+//  Estados: AVAILABLE → IN_PROGRESS → READY_TO_SUMMON → BOSS_FIGHT (→ próximo selo / ALL_CLEARED).
+//  O índice da missão é o índice do chefe (0 = Aethelgard … 6 = Null Avatar). Progresso salvo junto do ciclo.
+// =====================================================================
+const HER_M=[
+ {boss:'Aethelgard, o Dragão da Contingência',title:'Os Ponteiros do Relógio Quebrado',type:'FLIGHT_RINGS',n:5,time:45,
+  intro:'Viajante do Firmamento... o Dragão da Contingência dorme além dos ponteiros partidos. Atravesse as cinco fendas temporais suspensas nos céus antes que o relógio estelar se feche.',
+  ready:'O fluxo do tempo cedeu ao seu voo. Diga a palavra, e Aethelgard descerá das estrelas.'},
+ {boss:'Vaelis-00, a Anomalia Logística',title:'Depuração de Dissonância',type:'DESTROY_NODES',n:4,hp:18000,
+  intro:'As máquinas do Arquiteto ergueram quatro nós de interferência para ocultar a anomalia logística. Destrua cada transmissor em órbita para expor Vaelis-00.',
+  ready:'A rede de ocultação foi silenciada. Vaelis-00 já detectou a sua presença.'},
+ {boss:'Apeiron, o Monólito de Terminus',title:'Os Quatro Pilares do Vazio',type:'ACTIVATE_OBELISKS',n:4,
+  intro:'Apeiron sustenta a geometria deste plano através dos quatro pontos cardeais. Voe até os extremos do horizonte e desperte os quatro obeliscos do Terminus.',
+  ready:'Os quatro quadrantes ressoam em uníssono. O Monólito de Terminus aguarda seu julgamento.'},
+ {boss:'Aethelis, o Rex da Ressonância Aúrica',title:'Prova do Sangue Dourado',type:'SURVIVE_ZONE',n:25,
+  intro:'Um Rex Aúrico não responde a covardes. Permaneça no interior do círculo sagrado e suporte a pressão de sua ressonância dourada sem recuar.',
+  ready:'Sua vontade não dobrou diante do peso Aúrico. Aethelis reconhece um igual.'},
+ {boss:'XM-99 Zenith, a Síntese Suprema',title:'Sobrecarga dos Capacitores Exo',type:'COLLECT_CORES',n:6,
+  intro:'A síntese suprema do Arquiteto exige uma carga energética colossal para despertar. Colete os seis núcleos de plasma dispersos na alta atmosfera.',
+  ready:'Os capacitores atingiram o limiar crítico. Prepare-se para enfrentar o ápice mecânico de XM-99 Zenith.'},
+ {boss:'O Devorador do Multiverso',title:'Isca Dimensional',type:'DAMAGE_RIFTS',n:150000,
+  intro:'O predador de realidades só emerge quando sente o cheiro de um universo sangrando. Golpeie as três fendas dimensionais no céu até rasgar o véu do multiverso.',
+  ready:'O véu foi rasgado... ouça o rugido vindo do abismo entre os mundos. Ele está vindo.'},
+ {boss:'Null Avatar',title:'O Silêncio Absoluto',type:'CLAIM_SPEAR',n:1,
+  intro:'Os selos... acabaram. Algo que não pertence a nenhum plano está apagando as bordas do Firmamento. Vá até o altar central e empunhe a Lança de Xeroc... antes que tudo vire zero.',
+  ready:'-. .- -.. .- / .-. . ... - .-'}];
+const HER_ROMAN=['I','II','III','IV','V','VI','VII'],HER_CARD=['Norte','Leste','Sul','Oeste'];
+const HER={idx:0,st:'AVAILABLE',prog:0,timer:0,armed:false,objs:[],t:0,live:false,summonT:-1,pulseT:0,root:new THREE.Group(),
+ base:v3(0,PLAT_Y+1.2,-18),g:null,mk:[]};
+scene.add(HER.root);
+function herSave(){LS.set('herald_mission_index',String(HER.idx));LS.set('herald_quest_status',HER.st);LS.set('herald_cycle',String(END.cycle));}
+
+// ---------- o NPC ----------
+function heraldBuild(){const g=new THREE.Group();g.visible=false;scene.add(g);
+ const obs=stdM(0x09090b,{roughness:.92,metalness:.15,side:THREE.DoubleSide}),hoodM=stdM(0x18181b,{roughness:.85,side:THREE.DoubleSide});
+ // manto de matéria escura: largo nos ombros, afinando até uma ponta que se desfaz em partículas (sem pés)
+ const prof=[[.02,0],[.16,.3],[.38,.85],[.62,1.5],[.8,2.05],[.84,2.3],[.62,2.5],[.3,2.62]].map(([r,y])=>new THREE.Vector2(r,y));
+ g.add(new THREE.Mesh(new THREE.LatheGeometry(prof,16),obs));
+ for(let k=0;k<7;k++){const a=k/7*6.283;const tat=new THREE.Mesh(new THREE.ConeGeometry(.12,.7,4),obs);tat.position.set(Math.cos(a)*.14,.05,Math.sin(a)*.14);tat.rotation.set(Math.PI+Math.sin(a)*.25,0,Math.cos(a)*.25);g.add(tat);}
+ const mantle=new THREE.Mesh(new THREE.ConeGeometry(1.0,.75,16,1,true),obs);mantle.position.y=2.3;g.add(mantle);
+ // capuz profundo com o rosto vazio: só uma fenda vertical de luz estelar
+ const hood=new THREE.Mesh(new THREE.SphereGeometry(.44,18,14,Math.PI/2+.62,Math.PI*2-1.24,0,2.45),hoodM);hood.scale.set(1,1.18,1.12);hood.position.set(0,2.95,0);g.add(hood);
+ const tip=new THREE.Mesh(new THREE.ConeGeometry(.2,.5,10),hoodM);tip.position.set(0,3.38,-.2);tip.rotation.x=-.7;g.add(tip);
+ g.add(mesh(new THREE.SphereGeometry(.36,14,10),new THREE.MeshBasicMaterial({color:0x000000}),0,2.93,.02));
+ const slitM=new THREE.MeshBasicMaterial({color:C(1.8,.7,3.2)}),coreM=new THREE.MeshBasicMaterial({color:C(.6,2.2,3)});
+ const slit=mesh(new THREE.BoxGeometry(.05,.34,.02),slitM,0,2.92,.38);g.add(slit);g.add(mesh(new THREE.BoxGeometry(.018,.24,.025),coreM,0,2.92,.39));
+ const sg=glowSprite(C(1.4,.6,2.6),.9);sg.position.set(0,2.92,.42);g.add(sg);
+ // mãos estendidas em mangas e a Lanterna do Limiar à frente delas
+ for(const s of [-1,1]){const sl=new THREE.Mesh(new THREE.ConeGeometry(.15,.62,10,1,true),obs);sl.position.set(s*.32,2.05,.32);sl.rotation.set(Math.PI/2-.5,0,s*.3);g.add(sl);
+  g.add(mesh(new THREE.SphereGeometry(.07,8,6),stdM(0x1c1917,{roughness:.6}),s*.24,1.95,.62));}
+ const lanM=new THREE.MeshStandardMaterial({color:0xe2e8f0,emissive:0x94a3b8,emissiveIntensity:1.4,metalness:.2,roughness:.05,transparent:true,opacity:.7,flatShading:true});
+ const lantern=mesh(new THREE.OctahedronGeometry(.24,0),lanM,0,1.98,.86);g.add(lantern);
+ const lanCore=mesh(new THREE.OctahedronGeometry(.09,0),new THREE.MeshBasicMaterial({color:C(2.4,2.4,2.6)}),0,0,0);lantern.add(lanCore);
+ const lanGlow=glowSprite(C(1.6,1.6,1.8),1.3);lantern.add(lanGlow);const lanL=new THREE.PointLight(0xe2e8f0,1.4,9,2);lantern.add(lanL);
+ // astrolábio partido: três anéis de prata abissal girando em eixos próprios
+ const ringM=new THREE.MeshStandardMaterial({color:0x94a3b8,metalness:.9,roughness:.22,emissive:0x1e293b,emissiveIntensity:.4});
+ const rings=[];for(let i=0;i<3;i++){const piv=new THREE.Group();piv.position.y=2.45;piv.rotation.set(i*.6+.3,i*.8,.3);g.add(piv);
+  const r=new THREE.Mesh(new THREE.TorusGeometry(1.15+i*.22,.025,8,64,Math.PI*2-.5-i*.35),ringM);piv.add(r);
+  r.add(mesh(new THREE.OctahedronGeometry(.06,0),new THREE.MeshBasicMaterial({color:C(1.6,1.6,2)}),1.15+i*.22,0,0));rings.push({piv,r,sp:[.7,-.45,.33][i]});}
+ // feixe violeta-ciano do selo rompido e o glifo no piso
+ const beam=new THREE.Group();beam.visible=false;g.add(beam);
+ const bg=new THREE.CylinderGeometry(1,1,1,24,1,true);bg.translate(0,.5,0);
+ const b1=new THREE.Mesh(bg,addMat(C(1.5,.4,2.8),.28));b1.scale.set(1.5,70,1.5);b1.position.y=-1.2;const b2=new THREE.Mesh(bg,addMat(C(.3,2,2.8),.5));b2.scale.set(.35,70,.35);b2.position.y=-1.2;beam.add(b1,b2);
+ const glyph=new THREE.Mesh(new THREE.RingGeometry(1.9,2.4,6,1),addMat(C(1.4,.5,2.6),.45));glyph.rotation.x=-Math.PI/2;glyph.position.y=-1.15;g.add(glyph);
+ Object.assign(HER,{g,slit,slitM,coreM,lantern,lanM,lanCore,lanGlow,lanL,rings,beam,glyph});}
+
+// ---------- objetos das provações ----------
+function herClear(){for(const o of HER.objs)HER.root.remove(o.m);HER.objs.length=0;}
+function herObj(m,p,r,extra){m.position.copy(p);HER.root.add(m);const o=Object.assign({m,p:m.position,r,done:false},extra||{});HER.objs.push(o);return o;}
+function herSpawn(){herClear();const M=HER_M[HER.idx],Y=PLAT_Y;HER.prog=0;HER.armed=false;HER.timer=M.time||0;HER.pulseT=1.5;
+ if(M.type==='FLIGHT_RINGS')for(let i=0;i<M.n;i++){const a=i/M.n*6.283+.5,y=Y+25+i*27.5;const g=new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(5.5,.35,10,48),new THREE.MeshBasicMaterial({color:C(.5,2,3)})));
+  g.add(new THREE.Mesh(new THREE.CircleGeometry(5.2,40),addMat(C(.4,1.2,2.4),.12)));
+  for(let k=0;k<12;k++){const t=mesh(new THREE.BoxGeometry(.18,k%3?.6:1.1,.12),new THREE.MeshBasicMaterial({color:C(2.4,2,1.2)}),0,0,0);t.position.set(Math.cos(k/12*6.283)*4.6,Math.sin(k/12*6.283)*4.6,0);t.rotation.z=k/12*6.283+Math.PI/2;g.add(t);}
+  const hands=[];for(const [L,w] of [[3.6,.2],[2.4,.3]]){const h=new THREE.Group();h.add(mesh(new THREE.BoxGeometry(w,L,.1),new THREE.MeshBasicMaterial({color:C(2.6,2.2,1.4)}),0,L/2,0));g.add(h);hands.push(h);}
+  g.add(glowSprite(C(.5,1.6,2.6),7));
+  const o=herObj(g,v3(Math.cos(a)*110,y,Math.sin(a)*110),6.5,{hands});g.lookAt(0,y,0);}
+ else if(M.type==='DESTROY_NODES')for(let i=0;i<M.n;i++){const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0x0284c7,emissive:0x38bdf8,emissiveIntensity:1.5,metalness:.7,roughness:.25,flatShading:true});
+  g.add(new THREE.Mesh(new THREE.OctahedronGeometry(3.2,0),mat));const sh=new THREE.Mesh(new THREE.IcosahedronGeometry(4.3,0),new THREE.MeshBasicMaterial({color:C(.4,1.6,2.6),wireframe:true,transparent:true,opacity:.35}));g.add(sh);
+  g.add(glowSprite(C(.4,1.5,2.6),9));
+  herObj(g,v3(0,0,0),4.4,{hp:M.hp,mat,sh,a:i/M.n*6.283,y:Y+(i%2?100:80),fire:rnd(1,3)});}
+ else if(M.type==='ACTIVATE_OBELISKS'){const P4=[[0,-220],[220,0],[0,220],[-220,0]];P4.forEach(([x,z],i)=>{const gy=Math.max(groundH(x,z),-4);const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0x18181b,emissive:0x7f1d1d,emissiveIntensity:.8,roughness:.6,metalness:.3,flatShading:true});
+  g.add(mesh(new THREE.CylinderGeometry(1.2,2.0,14,6),mat,0,7,0));g.add(mesh(new THREE.ConeGeometry(1.2,2.2,6),mat,0,15.1,0));g.add(mesh(new THREE.CylinderGeometry(3.4,3.8,1,6),stdM(0x27272a,{flatShading:true}),0,.5,0));
+  const bm=new THREE.Mesh(new THREE.CylinderGeometry(.9,.9,160,10,1,true),addMat(C(2.6,.4,.4),.0));bm.position.y=80;g.add(bm);
+  herObj(g,v3(x,gy,z),8,{mat,bm,name:HER_CARD[i],ord:i});});}
+ else if(M.type==='SURVIVE_ZONE'){const g=new THREE.Group();const ring=new THREE.Mesh(new THREE.RingGeometry(33,35,96),addMat(C(2.6,1.9,.5),.85));ring.rotation.x=-Math.PI/2;g.add(ring);
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(33,64),addMat(C(1.4,1,.3),.07));disc.rotation.x=-Math.PI/2;g.add(disc);
+  const wall=new THREE.Mesh(new THREE.CylinderGeometry(35,35,6,96,1,true),addMat(C(2.4,1.7,.4),.12));wall.position.y=3;g.add(wall);
+  herObj(g,v3(0,PLAT_Y+.45,0),35,{ring,disc,wall});}
+ else if(M.type==='COLLECT_CORES'){for(let i=0;i<M.n;i++){const a=i/M.n*6.283+.3;const g=new THREE.Group();
+   g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(2.2,0),new THREE.MeshStandardMaterial({color:0x22d3ee,emissive:0x06b6d4,emissiveIntensity:1.8,flatShading:true})));
+   g.add(glowSprite(C(.4,2.4,2.8),8));herObj(g,v3(Math.cos(a)*140,Y+50+(i%3)*30,Math.sin(a)*140),5);}
+  // feixes de varredura girando no céu
+  HER.beams=[];[[Y+52,.32],[Y+82,-.41],[Y+112,.27]].forEach(([y,sp],k)=>{const piv=new THREE.Group();piv.position.set(0,y,0);piv.rotation.y=k*2.1;HER.root.add(piv);
+   const bg=new THREE.CylinderGeometry(1,1,1,8,1,true);bg.rotateZ(Math.PI/2);bg.translate(.5,0,0);
+   const a1=new THREE.Mesh(bg,addMat(C(2.8,.4,.5),.55));a1.scale.set(190,.7,.7);a1.position.x=8;const a2=new THREE.Mesh(bg,addMat(C(3,2.4,2.4),.9));a2.scale.set(190,.18,.18);a2.position.x=8;piv.add(a1,a2);
+   HER.beams.push({piv,sp,cd:0});});}
+ else if(M.type==='DAMAGE_RIFTS')for(let i=0;i<3;i++){const a=i/3*6.283+.9;const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0x581c87,emissive:0xc026d3,emissiveIntensity:1.6,flatShading:true});const core=new THREE.Mesh(new THREE.OctahedronGeometry(4.5,1),mat);core.scale.set(.5,2.2,.5);g.add(core);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(5.5,.12,6,48),addMat(C(2.6,.5,2.8),.7));g.add(ring);g.add(glowSprite(C(2.2,.4,2.6),14));
+  herObj(g,v3(Math.cos(a)*100,Y+35,Math.sin(a)*100),5.5,{mat,ring,core});}
+ else if(M.type==='CLAIM_SPEAR'){const g=new THREE.Group();const gold=stdM(0xfbbf24,{metalness:.95,roughness:.2,emissive:0x6b4300,emissiveIntensity:.5});
+  g.add(mesh(new THREE.CylinderGeometry(1.6,1.9,.5,8),stdM(0x1c1917,{flatShading:true}),0,.25,0));g.add(mesh(new THREE.CylinderGeometry(.9,1.2,1.1,8),stdM(0x27272a,{flatShading:true}),0,1.05,0));
+  g.add(meshR(new THREE.TorusGeometry(1.0,.06,6,32),gold,0,1.62,0,Math.PI/2));
+  const sp=buildSpear();sp.scale.setScalar(1.6);sp.position.y=2.2;g.add(sp);
+  const bm=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,40,12,1,true),addMat(C(2.8,2.2,.8),.25));bm.position.y=20;g.add(bm);
+  herObj(g,v3(0,PLAT_Y+.2,0),4.5,{sp,bm});}}
+
+// ---------- fluxo ----------
+function heraldOpen(){let idx=parseInt(LS.get('herald_mission_index'))||0,st=LS.get('herald_quest_status')||'AVAILABLE';
+ if(LS.get('herald_cycle')!==String(END.cycle)||st==='ALL_CLEARED'||!(idx>=0&&idx<HER_M.length)){idx=0;st='AVAILABLE';}
+ if(st==='BOSS_FIGHT')st=idx===6?'IN_PROGRESS':'READY_TO_SUMMON'; // a luta não é salva: volta ao selo rompido
+ HER.idx=idx;HER.st=st;HER.live=true;HER.summonT=-1;G.idx=idx;G.boss=null;updateGList();
+ placePlayer();restorePlayer();arenaRestore();fadeTo(0,1.4);setMusic('calm');
+ if(st==='IN_PROGRESS')herSpawn();else herClear();herSave();
+ toast((idx>0?'SELO '+HER_ROMAN[idx]+' · PROGRESSO RESTAURADO':'O FIRMAMENTO SILENCIA')+'<small>'+herHint()+'</small>',3.4);}
+function heraldBossDown(i){HER.idx=i+1;HER.st='AVAILABLE';HER.summonT=-1;herClear();herSave();G.idx=HER.idx;updateGList();
+ placePlayer();restorePlayer();arenaRestore();fadeTo(0,1.4);setMusic('calm');
+ toast('SELO '+HER_ROMAN[HER.idx]+' DESPERTO<small>O Arauto do Vazio aguarda na borda norte do santuário</small>',3.2);}
+function herHint(){const M=HER_M[HER.idx];if(!M)return '';return HER.st==='READY_TO_SUMMON'?'Retorne ao Arauto e invoque '+M.boss.split(',')[0]:HER.st==='IN_PROGRESS'?M.title:'Consulte o Arauto do Vazio na borda norte do santuário';}
+function herSay(txt,glitch){memSay('ARAUTO DO VAZIO',txt,{at:HER.base.clone()});$('memDlg').classList.toggle('herald',true);$('memDlg').classList.toggle('glitch',!!glitch);if(glitch){glitchScreen(.45);sfx('glitch');}else sfx('chime');}
+function herComplete(){HER.st='READY_TO_SUMMON';herClear();if(HER.beams){HER.beams.forEach(b=>HER.root.remove(b.piv));HER.beams=null;}herSave();
+ flash(.35,.7);sfx('stinger');toast('SELO '+HER_ROMAN[HER.idx]+' ROMPIDO<small>Retorne ao Arauto do Vazio e invoque o guardião</small>',3);}
+function heraldInteract(n){
+ if(n.her==='obelisk'){const o=n.o;o.done=true;o.mat.emissive.setHex(0x22d3ee);o.mat.emissiveIntensity=2.2;o.bm.material.color.copy(C(.3,2.2,2.8));o.bm.material.opacity=.35;
+  burst(tmpA.copy(o.p).setY(o.p.y+8),COL.cyan,60,12,.8,1);ringFx(o.p.clone().setY(o.p.y+.6),C(.3,2.2,2.8),30,1,false);sfx('chime');HER.prog++;
+  if(HER.prog>=4)herComplete();else toast('OBELISCO DO '+o.name.toUpperCase()+' DESPERTO<small>'+HER.prog+'/4 · próximo: '+HER_CARD[HER.prog]+'</small>',2.2);return;}
+ if(n.her==='altar'){HER.st='BOSS_FIGHT';herSave();herClear();flash(.6,.8);sfx('stinger');memClose();afterDevorador();return;}
+ const M=HER_M[HER.idx];
+ if(!M||HER.st==='ALL_CLEARED')return herSay('Todos os sete selos foram rompidos. O Firmamento agora pertence ao silêncio que você conquistou.');
+ if(HER.st==='AVAILABLE'){HER.st='IN_PROGRESS';herSpawn();herSave();herSay(M.intro,HER.idx===6);
+  setTimeout(()=>toast('PROVAÇÃO · '+M.title.toUpperCase()+'<small>Selo '+HER_ROMAN[HER.idx]+' · '+M.boss+'</small>',3),HER.idx===6?600:200);return;}
+ if(HER.st==='IN_PROGRESS')return herSay(HER.idx===6?'...o altar... a lança... antes que tudo vire zero...':'O selo de '+M.boss+' permanece fechado. Conclua a provação "'+M.title+'" ('+herProgTxt(M)+').',HER.idx===6);
+ if(HER.st==='READY_TO_SUMMON'){HER.st='BOSS_FIGHT';herSave();herSay(M.ready);HER.summonT=2.6;sfx('portal');}}
+function herProgTxt(M){return M.type==='SURVIVE_ZONE'?HER.prog.toFixed(1)+'/'+M.n+' s':M.type==='DAMAGE_RIFTS'?fmt(HER.prog)+'/'+fmt(M.n):Math.floor(HER.prog)+'/'+M.n;}
+function heraldNear(){if(!HER.live||G.boss||END.phase)return null;const M=HER_M[HER.idx];
+ if(HER.g.visible&&HER.summonT<0){const p=HER.base;if(Math.hypot(P.pos.x-p.x,P.pos.z-p.z)<5&&Math.abs(P.pos.y-(p.y-1.2))<4)
+  return {her:'herald',label:HER.st==='READY_TO_SUMMON'?'Invocar Guardião · '+M.boss.split(',')[0]:'Consultar o Arauto do Vazio'};}
+ if(HER.st!=='IN_PROGRESS'||!M)return null;
+ if(M.type==='ACTIVATE_OBELISKS'){const o=HER.objs[HER.prog];if(o&&P.pos.y<o.p.y+18&&P.pos.distanceTo(tmpA.copy(o.p).setY(Math.max(o.p.y,P.pos.y-3)))<o.r)return {her:'obelisk',o,label:'Despertar o Obelisco do '+o.name};}
+ if(M.type==='CLAIM_SPEAR'){const o=HER.objs[0];if(o&&Math.hypot(P.pos.x-o.p.x,P.pos.z-o.p.z)<o.r&&Math.abs(P.pos.y-o.p.y)<4)return {her:'altar',label:'Empunhar a Lança de Xeroc'};}
+ return null;}
+beginBoss=(f=>function(i){HER.idx=i;HER.st='BOSS_FIGHT';HER.live=true;HER.summonT=-1;herClear();if(HER.beams){HER.beams.forEach(b=>HER.root.remove(b.piv));HER.beams=null;}herSave();return f(i);})(beginBoss);
+
+// golpes do jogador nos Nós de Interferência e nos Rasgo-Portais (corpo a corpo perto, ou pela mira até 200 m)
+function heraldStrike(){if(HER.st!=='IN_PROGRESS'||G.boss)return;const M=HER_M[HER.idx];if(M.type!=='DESTROY_NODES'&&M.type!=='DAMAGE_RIFTS')return;
+ const W=WEAP[P.weapon];if(!W)return;let dmg=W.dmg*(P.adrT>0?3:1)*(W.melee&&P.rageT>0?1.5:1);
+ const chest=P.pos.clone();chest.y+=1.2;const o=camera.position.clone(),d=new V3();camera.getWorldDirection(d);let best=null,bt=1e9,melee=false;
+ for(const T of HER.objs){if(T.done)continue;if(T.p.distanceTo(chest)-T.r<=7.5){best=T;melee=true;break;}
+  const v=new V3().subVectors(T.p,o),tc=v.dot(d);if(tc<0||tc>200)continue;const d2=v.lengthSq()-tc*tc;if(d2<(T.r+1.2)*(T.r+1.2)&&tc<bt){bt=tc;best=T;}}
+ if(!best)return;dmg=Math.round(dmg*rnd(.96,1.04));const at=best.p.clone().addScaledVector(d,-best.r*.6);
+ if(!melee)bolt(chest,at,.5,W.col,W.col);burst(at,W.col,14,9,.35,.6);dmgText(at,fmt(dmg),'');sfx('hit');
+ if(M.type==='DESTROY_NODES'){best.hp-=dmg;best.flash=.12;if(best.hp<=0){best.done=true;HER.root.remove(best.m);burst(best.p,COL.cyan,80,18,.9,1.2);burst(best.p,COL.white,30,10,.6,.8);sfx('boom',.5);shake=Math.max(shake,.4);HER.prog++;
+   if(HER.prog>=M.n)herComplete();else toast('NÓ DE INTERFERÊNCIA DESTRUÍDO<small>'+HER.prog+'/'+M.n+'</small>',1.6);}}
+ else{best.flash=.12;HER.prog=Math.min(M.n,HER.prog+dmg);if(HER.prog>=M.n){for(const T of HER.objs)burst(T.p,COL.purple,90,20,1,1.3);sfx('roar',.6);herComplete();}}}
+{const at=attack;attack=function(){const r=at.apply(this,arguments);heraldStrike();return r;};}
+
+// ---------- por quadro ----------
+function heraldTick(dt){const g=HER.g;if(!g)return;HER.t+=dt;const t=HER.t,M=HER_M[HER.idx];
+ const show=HER.live&&HER.st!=='BOSS_FIGHT'&&!G.boss&&!voidMode&&!MEM.inside&&!CN.on&&!END.phase||HER.summonT>0&&!CN.on;
+ g.visible=show;HER.root.visible=!CN.on&&!G.boss&&!MEM.inside;
+ const glitch=HER.idx===6&&HER.st!=='ALL_CLEARED';
+ if(show){const p=HER.base;g.position.set(p.x,p.y+Math.sin(t*1.8)*.25,p.z);
+  if(glitch&&Math.random()<.08){g.position.x+=rnd(-.4,.4);g.position.y+=rnd(-.2,.2);}
+  const yawT=Math.atan2(P.pos.x-p.x,P.pos.z-p.z);g.rotation.y+=wrapA(yawT-g.rotation.y)*Math.min(1,dt*2);
+  for(const R of HER.rings){R.piv.rotation.y+=dt*R.sp*(HER.summonT>0?6:1);R.piv.rotation.x+=dt*R.sp*.5;}
+  HER.lantern.rotation.y-=dt*1.5;HER.lantern.position.y=1.98+Math.sin(t*2.3)*.05;HER.glyph.rotation.z+=dt*.3;
+  const col=HER.st==='READY_TO_SUMMON'?[0xa855f7,C(2.2,.8,3.2)]:HER.st==='IN_PROGRESS'?[t%2<1?0xf59e0b:0x38bdf8,t%2<1?C(2.8,1.8,.4):C(.4,2,3)]:[0xe2e8f0,C(2.2,2.2,2.4)];
+  HER.lanM.emissive.setHex(col[0]);HER.lanCore.material.color.copy(col[1]);HER.lanGlow.material.color.copy(col[1]);HER.lanL.color.setHex(col[0]);
+  HER.beam.visible=HER.st==='READY_TO_SUMMON'||HER.summonT>0;if(HER.beam.visible)HER.beam.children[0].material.opacity=.22+.08*Math.sin(t*3);
+  const fl=glitch?(Math.random()<.15?.1:1):(.85+.15*Math.sin(t*7));HER.slitM.color.setRGB(1.8*fl,.7*fl,3.2*fl);if(glitch&&Math.random()<.1)HER.slitM.color.setRGB(3,.3,.3);
+  if(Math.random()<.6){const a=Math.random()*6.283;emit(p.x+Math.cos(a)*.3,g.position.y+rnd(-.2,.4),p.z+Math.sin(a)*.3,rnd(-.3,.3),-rnd(.3,.9),rnd(-.3,.3),Math.random()<.7?C(.45,.15,.8):C(.2,.6,1),rnd(.25,.5),rnd(1,2));}
+  if(HER.beam.visible&&Math.random()<.5)emit(p.x+rnd(-1.4,1.4),p.y+rnd(0,30),p.z+rnd(-1.4,1.4),0,rnd(4,9),0,Math.random()<.5?COL.purple:COL.cyan,.6,1.4);}
+ // invocação: o Arauto recua ao plano etéreo e o guardião desce
+ if(HER.summonT>0&&!CN.on){HER.summonT-=dt;const k=1-HER.summonT/2.6;g.scale.setScalar(Math.max(.05,1-k*k));g.position.y+=k*k*6;
+  if(Math.random()<.9)burst(g.position.clone().setY(g.position.y+2),Math.random()<.5?COL.purple:COL.cyan,3,6,.5,.7);
+  if(HER.summonT<=0){HER.summonT=-1;g.scale.setScalar(1);burst(HER.base.clone().setY(HER.base.y+2),COL.purple,90,16,.9,1.2);memClose();beginBoss(HER.idx);return;}}
+ if(CN.on||G.boss||!HER.live)return;
+ if(HER.st!=='IN_PROGRESS'||!M||P.dead)return;
+ const pp=P.pos;
+ if(M.type==='FLIGHT_RINGS'){if(!HER.armed&&(!MEM.dlg||Math.hypot(pp.x-HER.base.x,pp.z-HER.base.z)>8))HER.armed=true;
+  if(HER.armed){HER.timer-=dt;if(HER.timer<=0){herSpawn();HER.armed=true;sfx('glitch');toast('O RELÓGIO ESTELAR SE FECHOU<small>As fendas temporais se realinharam · 45 s</small>',2.4);return;}}
+  for(const o of HER.objs){if(o.done)continue;o.hands[0].rotation.z=-t*1.4;o.hands[1].rotation.z=-t*.2;
+   if(tmpA.set(pp.x,pp.y+1,pp.z).distanceTo(o.p)<=o.r){o.done=true;HER.root.remove(o.m);burst(o.p,COL.cyan,60,14,.7,1);ringFx(o.p.clone(),C(.5,2,3),14,.6,true);sfx('chime');HER.prog++;
+    if(HER.prog>=M.n){herComplete();return;}toast('FENDA CRONAL '+HER.prog+'/'+M.n,1.1);}}}
+ else if(M.type==='DESTROY_NODES'){for(const o of HER.objs){if(o.done)continue;o.a+=dt*.08;o.p.set(Math.cos(o.a)*95,o.y+Math.sin(t*.8+o.a*3)*3,Math.sin(o.a)*95);o.m.rotation.y+=dt*.9;o.sh.rotation.x+=dt*.5;
+   if(o.flash>0){o.flash-=dt;o.mat.emissiveIntensity=4;}else o.mat.emissiveIntensity=1.5;
+   o.fire-=dt;if(o.fire<=0){o.fire=3.2;const d=tmpA.set(pp.x,pp.y+1.2,pp.z).sub(o.p);if(d.length()<90){d.normalize().multiplyScalar(22);bullet(o.p.x,o.p.y,o.p.z,d.x,d.y,d.z,{col:C(.4,2,3),dmg:55,r:.6,life:6});}}}}
+ else if(M.type==='ACTIVATE_OBELISKS'){HER.objs.forEach((o,i)=>{if(o.done)return;const next=i===HER.prog;o.bm.material.opacity=next?.18+.08*Math.sin(t*3):0;o.mat.emissiveIntensity=next?1.2+.6*Math.sin(t*4):.5;});}
+ else if(M.type==='SURVIVE_ZONE'){const o=HER.objs[0];const inside=Math.hypot(pp.x,pp.z)<=35&&pp.y<=PLAT_Y+15;
+  o.ring.material.opacity=.6+.3*Math.sin(t*4);o.wall.material.opacity=inside?.16:.08;
+  if(inside){HER.prog+=dt;HER.pulseT-=dt;if(HER.pulseT<=0){HER.pulseT=2.6;shockRing(v3(0,PLAT_Y,0),36,16,70,C(2.6,1.9,.5));sfx('heavy');}
+   if(Math.random()<.5){const a=Math.random()*6.283,r=rnd(0,35);emit(Math.cos(a)*r,PLAT_Y+.5,Math.sin(a)*r,0,rnd(2,5),0,COL.gold,.6,1);}}
+  else HER.prog=Math.max(0,HER.prog-dt*2);
+  if(HER.prog>=M.n)herComplete();}
+ else if(M.type==='COLLECT_CORES'){const ch=tmpB.set(pp.x,pp.y+1.2,pp.z);
+  for(const o of HER.objs){if(o.done)continue;o.m.rotation.y+=dt*1.4;o.m.rotation.x+=dt*.7;
+   if(ch.distanceTo(o.p)<=o.r){o.done=true;HER.root.remove(o.m);burst(o.p,COL.cyan,60,14,.7,1);sfx('zap');HER.prog++;
+    if(HER.prog>=M.n){herComplete();return;}toast('NÚCLEO DE PLASMA '+HER.prog+'/'+M.n,1.1);}}
+  if(HER.beams)for(const b of HER.beams){b.piv.rotation.y+=dt*b.sp;b.cd-=dt;
+   const l=tmpC.copy(ch).sub(b.piv.position).applyAxisAngle(UP,-b.piv.rotation.y);
+   if(l.x>8&&l.x<198&&Math.hypot(l.y,l.z)<2.2&&b.cd<=0){b.cd=.8;hurtPlayer(90,b.piv.position.clone(),{unblockable:true});burst(ch,COL.red,20,8,.4,.6);}}}
+ else if(M.type==='DAMAGE_RIFTS'){for(const o of HER.objs){o.core.rotation.y+=dt*1.2;o.ring.rotation.x+=dt*.8;o.ring.rotation.y+=dt*.5;
+   if(o.flash>0){o.flash-=dt;o.mat.emissiveIntensity=4.5;}else o.mat.emissiveIntensity=1.6+.4*Math.sin(t*5);
+   if(Math.random()<.4)emit(o.p.x+rnd(-1,1),o.p.y+rnd(-8,8),o.p.z+rnd(-1,1),rnd(-2,2),rnd(-2,2),rnd(-2,2),COL.purple,.7,.8);}}
+ else if(M.type==='CLAIM_SPEAR'){const o=HER.objs[0];if(o){o.sp.rotation.y+=dt*.6;o.sp.position.y=2.2+Math.sin(t*1.6)*.15;o.bm.material.opacity=.18+.08*Math.sin(t*2.4);}
+  if(Math.random()<.04){glitchScreen(.12);}}}
+
+// ---------- HUD: painel da provação e marcadores na tela ----------
+function heraldHUD(){const q=$('herQ');const on=HER.live&&!G.boss&&!CN.on&&!MEM.inside&&HER.st!=='BOSS_FIGHT'&&!END.phase&&!P.dead;q.hidden=!on;
+ const M=HER_M[HER.idx];let marks=[];
+ if(on&&M){let obj='',fr=0;
+  if(HER.st==='AVAILABLE'){obj='Consulte o Arauto do Vazio · <kbd>E</kbd>';marks.push([HER.base,'ARAUTO']);}
+  else if(HER.st==='READY_TO_SUMMON'){obj='SELO ROMPIDO · retorne ao Arauto e invoque '+M.boss.split(',')[0];fr=1;marks.push([HER.base,'INVOCAR']);}
+  else{fr=Math.min(1,HER.prog/M.n);
+   switch(M.type){case 'FLIGHT_RINGS':obj=`Atravesse as Fendas Cronais · ${HER.prog}/${M.n} · <b class="${HER.timer<10?'warn':''}">${HER.armed?Math.max(0,HER.timer).toFixed(1):M.time}s</b>`;break;
+    case 'DESTROY_NODES':obj=`Destrua os Nós de Interferência em órbita · ${HER.prog}/${M.n}`;break;
+    case 'ACTIVATE_OBELISKS':obj=`Desperte o Obelisco do ${HER_CARD[HER.prog]||''} · <kbd>E</kbd> · ${HER.prog}/4`;break;
+    case 'SURVIVE_ZONE':obj=`Resista no Círculo de Ressonância · ${HER.prog.toFixed(1)}/${M.n} s`;break;
+    case 'COLLECT_CORES':obj=`Colete os Núcleos de Plasma · ${HER.prog}/${M.n} · evite os feixes`;break;
+    case 'DAMAGE_RIFTS':obj=`Fira os Rasgo-Portais · ${fmt(HER.prog)} / ${fmt(M.n)}`;break;
+    case 'CLAIM_SPEAR':obj='Vá até o altar central e empunhe a Lança de Xeroc';fr=0;break;}
+   if(M.type==='ACTIVATE_OBELISKS'){const o=HER.objs[HER.prog];if(o)marks.push([tmpE.copy(o.p).setY(o.p.y+8).clone(),HER_CARD[HER.prog].toUpperCase()]);}
+   else if(M.type==='SURVIVE_ZONE'){if(Math.hypot(P.pos.x,P.pos.z)>35)marks.push([v3(0,PLAT_Y+2,0),'CÍRCULO']);}
+   else if(M.type!=='CLAIM_SPEAR')for(const o of HER.objs)if(!o.done)marks.push([o.p,'']);}
+  const head=`SELO ${HER_ROMAN[HER.idx]} · ${M.title}`;
+  if(q._h!==head+obj){$('herT').textContent=head;$('herO').innerHTML=obj;q._h=head+obj;}$('herF').style.transform=`scaleX(${fr})`;
+  q.classList.toggle('ready',HER.st==='READY_TO_SUMMON');q.classList.toggle('glitch',HER.idx===6&&HER.st==='IN_PROGRESS');}
+ // marcadores (mesmo atrás da câmera: presos à borda da tela)
+ const W=innerWidth,H=innerHeight;
+ while(HER.mk.length<marks.length){const e=document.createElement('div');e.className='hmk';e.innerHTML='<i></i><b></b>';$('hud').appendChild(e);HER.mk.push(e);}
+ HER.mk.forEach((e,i)=>{const m=marks[i];if(!m){e.hidden=true;return;}e.hidden=false;const v=tmpD.copy(m[0]).project(camera);let x=v.x,y=v.y;const behind=v.z>1;if(behind){x=-x;y=-y;}
+  const off=behind||Math.abs(x)>.94||Math.abs(y)>.9;if(off){const s=Math.max(Math.abs(x)/.94,Math.abs(y)/.9);x/=s;y/=s;}
+  e.style.left=((x*.5+.5)*W)+'px';e.style.top=((-y*.5+.5)*H)+'px';e.classList.toggle('off',off);
+  const txt=(m[1]?m[1]+' · ':'')+Math.round(P.pos.distanceTo(m[0]))+' m';if(e._t!==txt){e.lastChild.textContent=txt;e._t=txt;}});}
+$('hud').insertAdjacentHTML('beforeend','<div id="herQ" hidden><div id="herT"></div><div id="herO"></div><div class="hbar"><i id="herF"></i></div></div>');
+document.head.insertAdjacentHTML('beforeend',`<style>
+#herQ{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:min(560px,86vw);padding:10px 16px 11px;text-align:center;background:linear-gradient(180deg,rgba(10,6,22,.82),rgba(4,3,10,.9));border:1px solid rgba(168,85,247,.35);border-top:2px solid #a855f7}
+#herT{font:700 12px/1.2 var(--display);letter-spacing:.22em;color:#c4b5fd;text-transform:uppercase}
+#herO{font:600 13px/1.4 var(--body);color:#e2e8f0;margin-top:5px}#herO kbd{display:inline-block;min-width:20px;padding:2px 5px;color:#140820;background:#a855f7;border:0}#herO b.warn{color:#f87171}
+#herQ .hbar{height:4px;margin-top:8px;background:rgba(255,255,255,.08);position:relative}#herQ .hbar i{position:absolute;inset:0;transform-origin:left;transform:scaleX(0);background:linear-gradient(90deg,#38bdf8,#a855f7)}
+#herQ.ready{border-top-color:#38bdf8;box-shadow:0 0 30px -8px #a855f7}#herQ.ready #herT{color:#7dd3fc}
+#herQ.glitch #herT,#herQ.glitch #herO{animation:herJit .18s steps(2) infinite}
+@keyframes herJit{0%{transform:translate(0,0);opacity:1}50%{transform:translate(2px,-1px);opacity:.75}100%{transform:translate(-2px,1px);opacity:1}}
+.hmk{position:absolute;transform:translate(-50%,-50%);pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:4px}
+.hmk i{width:12px;height:12px;transform:rotate(45deg);border:2px solid #a855f7;background:rgba(56,189,248,.35);box-shadow:0 0 10px #a855f7}
+.hmk b{font:700 10px/1 var(--display);letter-spacing:.12em;color:#e9d5ff;text-shadow:0 0 4px #000;white-space:nowrap}
+.hmk.off i{border-color:#38bdf8;background:rgba(168,85,247,.5)}
+#memDlg.herald{border-top-color:#a855f7;background:linear-gradient(180deg,rgba(12,6,26,.9),rgba(4,3,10,.96));border-color:rgba(168,85,247,.3)}
+#memDlg.herald #memWho{color:#c4b5fd}
+#memDlg.glitch #memTxt{animation:herJit .14s steps(2) infinite;color:#fecaca}
+</style>`);
+{const ms=memSay;memSay=function(){$('memDlg').classList.remove('herald','glitch');return ms.apply(this,arguments);};}
+{const uh=updateHUD;updateHUD=function(dt){uh(dt);heraldTick(dt);heraldHUD();};}
+heraldBuild();
 
 // =====================================================================
 //  TRILHA TEMA (tema-musica.js): tela de título, créditos, Memorial e a conversa com Xeroc após o Null Avatar
