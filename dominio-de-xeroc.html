@@ -1,7 +1,7 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Domínio de Xeroc</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Exo+2:ital,wght@0,400;0,600;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Pixelify+Sans:wght@500;700&family=Silkscreen&family=Exo+2:ital,wght@0,400;0,600;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,500&display=swap">
 <style>
 /* Domínio de Xeroc — HUD angular em ouro/ciano sobre o vazio; cutscenes com letterbox, cartelas e narração. */
 :root{
@@ -249,6 +249,7 @@ button.go:disabled{filter:grayscale(1) brightness(.6);cursor:wait}
 <script src="gael-model.js"></script>
 <script src="draedon-model.js"></script>
 <script src="player-anims.js"></script>
+<script src="herald-model.js"></script>
 <script src="tema-musica.js"></script>
 <script>
 
@@ -953,7 +954,10 @@ const MXS={body:new THREE.Quaternion(),torso:new THREE.Quaternion(),head:new THR
 function mxSample(an,t,loop,o){const n=an.n;let x=t*an.fps;if(loop){x%=n-1;if(x<0)x+=n-1;}else x=clamp(x,0,n-1);const i=Math.min(n-2,Math.floor(x)),u=x-i,A=an.fr[i],B=an.fr[i+1];
  for(const k of ['body','torso','head'])o[k].copy(A[k]).slerp(B[k],u);
  for(const k of ['sh','el','hip','kn'])for(let j=0;j<2;j++)o[k][j].copy(A[k][j]).slerp(B[k][j],u);o.y=lerp(A.y,B.y,u);return o;}
+const MXS2={body:new THREE.Quaternion(),torso:new THREE.Quaternion(),head:new THREE.Quaternion(),y:0,
+ sh:[new THREE.Quaternion(),new THREE.Quaternion()],el:[new THREE.Quaternion(),new THREE.Quaternion()],hip:[new THREE.Quaternion(),new THREE.Quaternion()],kn:[new THREE.Quaternion(),new THREE.Quaternion()]};
 // as molas da animação procedural continuam rodando por baixo: no início de cada quadro a pose delas é devolvida
+{const d0=dash;dash=function(){const was=P.dashT;d0();if(P.dashT>0&&!(was>0))P.mxDashT=0;};}
 function mxRestore(){for(const s of MX.saved)s[0].rotation.set(s[1],s[2],s[3]);if(MX.savedY!==undefined)body.position.y=MX.savedY;MX.saved.length=0;MX.savedY=undefined;}
 const mxQY=new THREE.Quaternion(),mxQ=new THREE.Quaternion();
 function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==kn){MX.built=mxBuild();MX.kn=kn;}const B=MX.built;if(!B)return;
@@ -969,8 +973,10 @@ function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==k
  const idleOk=c.ground&&!c.fight&&!c.atk&&!P.blocking&&P.dashT<=0&&!c.aim&&!P.dead&&c.runAmt<.12;
  P.mxIdle=lerp(P.mxIdle||0,idleOk?1:0,Math.min(1,dt*(idleOk?3:10)));P.mxIt=(P.mxIt||0)+dt;
  const wr=P.mxRun,wa=wr*(c.fight&&TWOH[c.wp]?0:1); // armas de duas mãos em combate mantêm os braços na empunhadura
- const wi=B.idle?P.mxIdle*(1-wr):0;
- if(wr<.002&&wi<.002&&(dw<.002||!B.draw))return;
+ let wi=B.idle?P.mxIdle*(1-wr):0;
+ // dash (Jump Over): só o trecho do salto ao rolamento (quadros 14→56), comprimido em ~0,55 s, por cima de corrida/idle
+ let wd=0,ds=null;if(P.mxDashT>=0&&B.dash){P.mxDashT+=dt;const D=.55,k=P.mxDashT/D;if(k>=1)P.mxDashT=-1;else{wd=smooth(0,.07,k)*(1-smooth(.8,1,k));ds=mxSample(B.dash,(14+k*42)/B.dash.fps,false,MXS2);}}
+ if(wr<.002&&wi<.002&&wd<.002&&(dw<.002||!B.draw))return;
  for(const o of [body,torso,head,arms[0].sh,arms[1].sh,arms[0].el,arms[1].el,legs[0].hip,legs[1].hip,legs[0].knee,legs[1].knee])MX.saved.push([o,o.rotation.x,o.rotation.y,o.rotation.z]);
  MX.savedY=body.position.y;
  if(wr>.002&&B.run){const s=mxSample(B.run,P.mxPh*B.run.dur,true,MXS);
@@ -982,6 +988,9 @@ function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==k
   mxQY.setFromAxisAngle(UP_,body.rotation.y);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wi);body.position.y=lerp(body.position.y,s.y,wi);
   torso.quaternion.slerp(s.torso,wi);head.quaternion.slerp(s.head,wi*.85);
   for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wi);legs[j].knee.quaternion.slerp(s.kn[j],wi);arms[j].sh.quaternion.slerp(s.sh[j],wi);arms[j].el.quaternion.slerp(s.el[j],wi);}}
+ if(wd>.002){const s=ds;mxQY.setFromAxisAngle(UP_,P._yaw||0);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wd);
+  if(!P.flying)body.position.y=lerp(body.position.y,s.y*.55,wd);torso.quaternion.slerp(s.torso,wd);head.quaternion.slerp(s.head,wd*.8);
+  for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wd);legs[j].knee.quaternion.slerp(s.kn[j],wd);arms[j].sh.quaternion.slerp(s.sh[j],wd);arms[j].el.quaternion.slerp(s.el[j],wd);}}
  if(dw>.002&&B.draw){const s=mxSample(B.draw,Math.max(0,P.drawT)*.9,false,MXS);
   torso.quaternion.slerp(s.torso,dw*.85);head.quaternion.slerp(s.head,dw*.6);
   for(let j=0;j<2;j++){arms[j].sh.quaternion.slerp(s.sh[j],dw);arms[j].el.quaternion.slerp(s.el[j],dw);}}}
@@ -2732,18 +2741,122 @@ function lightBeams(B){const f=B.focus(new V3());for(let k=0;k<3;k++){const g=ne
 function explode(B){const f=B.focus(new V3());flash(1,1.8);shake=2.2;sfx('boom',2);for(const c of [COL.white,COL.gold,COL.purple,COL.cyan])burst(f,c,120,34,1.8,1.8,3);
  ringFx(f,C(2.8,2.2,1),90,1.6,true);ringFx(f,C(1.6,.6,3),70,1.8,false);shockRing(v3(f.x,PLAT_Y,f.z),90,40,0,C(2.6,2,1));B.g.visible=false;
  if(B.id==='null')breakTiles(v3(0,0,0),95,9999);}
+// ---------- mortes cinematográficas ----------
+// Estrutura: golpe final em câmera lenta → três planos próprios de cada chefe (DEATH[id]) → herói + selo rompido.
+// Os efeitos correm na lista de efeitos, então respeitam a câmera lenta de cada plano (CN.ts).
+const DFG={tet:new THREE.TetrahedronGeometry(1,0),box:new THREE.BoxGeometry(1,1,1),oct:new THREE.OctahedronGeometry(1,0),gear:new THREE.TorusGeometry(1,.3,4,8),ico:new THREE.IcosahedronGeometry(1,0)};
+// estilhaços com física simples; h.frozen congela no ar, h.pull puxa de volta ao centro (rebobinar)
+function dfDebris(c,n,col,o){o=o||{};const mat=o.solid!==undefined?new THREE.MeshStandardMaterial({color:o.solid,emissive:col,emissiveIntensity:o.ei||.6,metalness:.6,roughness:.4,flatShading:true,transparent:true}):addMat(col,.95);
+ const h={list:[],frozen:false,pull:false,c:c.clone()};for(let i=0;i<n;i++){const m=new THREE.Mesh(DFG[o.geo||'tet'],mat);m.scale.setScalar(rnd(o.s0||.25,o.s1||1));
+  m.position.copy(c).add(v3(rnd(-1,1),rnd(-1,1),rnd(-1,1)).multiplyScalar(o.spread||1));const v=v3(rnd(-1,1),rnd(o.up?.2:-.6,1),rnd(-1,1)).normalize().multiplyScalar(rnd(.35,1)*(o.speed||16));
+  scene.add(m);h.list.push({m,v,w:v3(rnd(-7,7),rnd(-7,7),rnd(-7,7))});}
+ let t=0;const life=o.life||4,grav=o.grav===undefined?16:o.grav;
+ addFx({update(dt){t+=dt;for(const d of h.list){if(h.frozen){d.m.rotation.y+=dt*.3;continue;}
+   if(h.pull){d.v.lerp(tmpA.subVectors(h.c,d.m.position).multiplyScalar(2.6),Math.min(1,dt*4));d.m.scale.multiplyScalar(1-dt*.6);}else d.v.y-=grav*dt;
+   d.m.position.addScaledVector(d.v,dt);const s=d.m.scale.x;
+   if(grav&&!h.pull&&d.m.position.y<PLAT_Y+s*.5&&Math.hypot(d.m.position.x,d.m.position.z)<PLAT_R){d.m.position.y=PLAT_Y+s*.5;d.v.y*=-.3;d.v.x*=.6;d.v.z*=.6;d.w.multiplyScalar(.6);}
+   d.m.rotation.x+=d.w.x*dt;d.m.rotation.y+=d.w.y*dt;d.m.rotation.z+=d.w.z*dt;}
+  mat.opacity=(o.op||.95)*(1-smooth(life-.7,life,t));
+  if(t>=life||h.dead){h.list.forEach(d=>scene.remove(d.m));mat.dispose();return false;}return true;}});return h;}
+// esfera aditiva que cresce (nova) e coluna de luz
+function dfNova(c,col,r0,r1,dur,op,geo){const m=new THREE.Mesh(geo||DFG.ico,addMat(col,op||.8));m.position.copy(c);m.scale.setScalar(r0);scene.add(m);let t=0;
+ addFx({update(dt){t+=dt;const k=Math.min(1,t/dur);m.scale.setScalar(lerp(r0,r1,easeO(k)));m.rotation.y+=dt*.6;m.material.opacity=(op||.8)*(1-k);if(k>=1){scene.remove(m);m.material.dispose();return false;}return true;}});return m;}
+const dfColGeo=(()=>{const g=new THREE.CylinderGeometry(1,1,1,20,1,true);g.translate(0,.5,0);return g;})();
+function dfColumn(c,col,r,h,dur){const m=new THREE.Mesh(dfColGeo,addMat(col,.75));m.position.copy(c);scene.add(m);let t=0;
+ addFx({update(dt){t+=dt;const k=t/dur;m.scale.set(r*(1-k*.7)*Math.min(1,t*6),h*easeO(Math.min(1,t*2.5)),r*(1-k*.7)*Math.min(1,t*6));m.material.opacity=.75*(1-smooth(.6,1,k));if(k>=1){scene.remove(m);m.material.dispose();return false;}return true;}});}
+// partículas sugadas para um ponto (implosão)
+function dfImplode(c,col,R,dur,rate){let t=0;addFx({update(dt){t+=dt;for(let k=0;k<(rate||6);k++){const d=v3(rnd(-1,1),rnd(-1,1),rnd(-1,1)).normalize(),r=rnd(R*.5,R);
+  emit(c.x+d.x*r,c.y+d.y*r,c.z+d.z*r,-d.x*r*1.6,-d.y*r*1.6,-d.z*r*1.6,col,rnd(.5,1),.6);}return t<dur;}});}
+// janelas de erro só visuais (Vaelis)
+function dfWindows(c,n,R){const ws=[];for(let i=0;i<n;i++){const a=i/n*6.283,m=new THREE.Mesh(new THREE.PlaneGeometry(6,4),new THREE.MeshBasicMaterial({map:winTex,transparent:true,opacity:0,side:THREE.DoubleSide,color:C(1.4,1.4,1.4),depthWrite:false}));
+  m.position.set(c.x+Math.cos(a)*R,c.y+rnd(-4,5),c.z+Math.sin(a)*R);m.lookAt(c);m.rotation.z=rnd(-.2,.2);m.userData.d=i*.12;scene.add(m);ws.push(m);}
+ let t=0;const h={ws,kill(){ws.forEach(m=>{burst(m.position,COL.pink,24,10,.6,.9);scene.remove(m);m.geometry.dispose();m.material.dispose();});ws.length=0;}};
+ addFx({update(dt){t+=dt;ws.forEach(m=>{m.material.opacity=Math.min(.95,Math.max(0,t-m.userData.d)*5)*(Math.random()<.06?.2:1);m.scale.setScalar(1+Math.max(0,.15-(t-m.userData.d))*3);});return ws.length>0;}});return h;}
+// muda o brilho de todos os materiais do chefe (e devolve no fim — os chefes são reutilizados no ciclo seguinte)
+function dfTint(B,hex,amt){const saved=[];B.g.traverse(o=>{if(o.isMesh&&o.material&&o.material.emissive){const m=o.material;if(saved.some(s=>s.m===m))return;saved.push({m,e:m.emissive.clone(),i:m.emissiveIntensity,c:m.color.clone()});}});
+ const tgt=new THREE.Color(hex);return {set(k){for(const s of saved){s.m.emissive.copy(s.e).lerp(tgt,k);s.m.emissiveIntensity=lerp(s.i,amt,k);s.m.color.copy(s.c).lerp(tgt,k*.6);}},restore(){for(const s of saved){s.m.emissive.copy(s.e);s.m.emissiveIntensity=s.i;s.m.color.copy(s.c);}}};}
+const dfOrbit=(B,R,H,a0,a1)=>camOrbit(o=>B.focus(o),R,H,a0,a1);
+const DEATH={
+ generic:B=>({col:C(2.6,2,1),shots:[
+  {d:2.6,fov:48,ev:[[.1,()=>sfx('rumble',3)],[.5,()=>lightBeams(B)],[1.2,()=>lightBeams(B)],[1.9,()=>lightBeams(B)]],upd(dt,t){shake=Math.max(shake,.3+t*.2);},cam:dfOrbit(B,20,4,0,1.1)},
+  {d:2.6,fov:62,ev:[[.55,()=>explode(B)]],cam:dfOrbit(B,50,12,1.1,1.3)}]}),
+ // I · Aethelgard — o tempo para: as engrenagens do relógio congelam no ar, rebobinam para dentro dele e tudo explode
+ aethelgard:B=>{let h=null;const ck=()=>B.clockG.getWorldPosition(new V3());return {col:C(2.8,2.2,.9),shots:[
+  {d:2.6,ts:.5,fov:44,on(){sfx('tick');sfx('rumble',2);},ev:[[.25,()=>{h=dfDebris(ck(),46,C(2.8,2,.6),{geo:'gear',speed:24,grav:0,s0:.3,s1:1.1,life:9});burst(ck(),COL.gold,80,24,.8,1.2);flash(.4,.4);sfx('boom',.6);}],
+    [1.3,()=>{h.frozen=true;rampExposure(.75,.3);sfx('tick');CN.ts=.15;}]],
+   upd(dt,t){if(t>1.3&&Math.random()<.4)emit(...ck().toArray(),rnd(-1,1),rnd(-1,1),rnd(-1,1),COL.gold,.4,1.2);},cam:dfOrbit(B,22,3,-.4,.5)},
+  {d:2.4,fov:30,on(){cineNarr('O RELÓGIO ESTELAR CORRE PARA TRÁS',true);if(h){h.frozen=false;h.c.copy(ck());h.pull=true;}for(let k=0;k<6;k++)setTimeout(()=>sfx('tick'),k*260);},
+   off(){cineNarr(null);rampExposure(1.18,.4);},upd(dt){if(Math.random()<.8){const c=ck();emit(c.x,c.y,c.z,rnd(-6,6),rnd(-6,6),rnd(-6,6),COL.white,.6,.5);}},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:2.6,fov:64,ev:[[.35,()=>{const c=ck();if(h)h.dead=true;explode(B);dfNova(c,C(2.8,2.2,.9),2,60,1.6,.7);dfDebris(c,40,C(2.8,1.8,.5),{geo:'gear',speed:40,grav:6,life:3.5});
+    for(let k=0;k<3;k++)ringFx(c.clone(),k%2?C(2.8,2.2,.9):C(.5,2.2,2.8),40+k*25,1.2+k*.3,k===1);}]],cam:dfOrbit(B,56,14,.5,.75)}]};},
+ // II · Vaelis-00 — FATAL EXCEPTION: janelas de erro se multiplicam, o corpo é apagado em pixels e a tela cai
+ vaelis:B=>{let W=null;const r0=B.root?B.root.scale.clone():null;return {col:C(2.6,.4,1.8),shots:[
+  {d:2.6,ts:.6,fov:46,on(){W=dfWindows(B.focus(new V3()),10,9);glitchScreen(.5);sfx('glitch');cineNarr('FATAL_EXCEPTION // 0xD7AED0N · INVENTORY.SYS',true);},off(){cineNarr(null);},
+   ev:[[.8,()=>{sfx('glitch');glitchScreen(.2);}],[1.6,()=>{sfx('glitch');glitchScreen(.3);}]],cam:dfOrbit(B,24,3,.2,1.0)},
+  {d:2.4,fov:28,on(){sfx('zap');},upd(dt,t){if(B.root){const k=Math.min(1,t/2.2);B.root.scale.set(r0.x*(1+Math.sin(t*40)*.05*k),r0.y*Math.max(.05,1-k*k*.9),r0.z);}
+    for(const s of B.sph)if(Math.random()<.9)emit(s.p.x+rnd(-s.r,s.r),s.p.y+rnd(-s.r,s.r),s.p.z+rnd(-s.r,s.r),rnd(-2,2),rnd(1,6),rnd(-2,2),Math.random()<.5?COL.pink:COL.cyan,rnd(.3,.7),1.2);
+    if(Math.random()<.25)dfDebris(B.sph[0].p,3,Math.random()<.5?COL.pink:COL.cyan,{geo:'box',speed:7,grav:-2,s0:.15,s1:.4,life:1.5});},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:2.6,fov:60,ev:[[.3,()=>{if(W)W.kill();glitchScreen(.6);explode(B);cineNarr('VAELIS-00.EXE PAROU DE RESPONDER',true);dfDebris(B.focus(new V3()),60,COL.pink,{geo:'box',speed:30,grav:10,s0:.2,s1:.6});}]],off(){cineNarr(null);},cam:dfOrbit(B,48,10,1,1.25)}],
+  end(){if(W)W.kill();if(B.root&&r0)B.root.scale.copy(r0);}};},
+ // III · Apeiron — o espaço dobra: a câmera gira com o plano, o monólito racha e implode numa linha de luz
+ apeiron:B=>{const s0=B.mono?B.mono.scale.clone():null;const mc=()=>B.mono?B.mono.getWorldPosition(new V3()):B.focus(new V3());return {col:C(1.6,.7,3),shots:[
+  {d:2.8,fov:50,roll:k=>easeIO(k)*Math.PI*.9,on(){sfx('rumble',3);sfx('stinger');},ev:[[.3,()=>dfColumn(mc().setY(PLAT_Y),C(1.4,.6,3),6,120,2.4)],[1,()=>ringFx(mc(),C(1.6,.7,3),50,1.2,true)],[1.8,()=>ringFx(mc(),C(.5,2,3),60,1.2,true)]],
+   upd(dt,t){shake=Math.max(shake,.2+t*.1);},cam:dfOrbit(B,26,6,0,1.6)},
+  {d:2.2,ts:.6,fov:30,on(){sfx('boom',.5);},ev:[[.2,()=>dfDebris(mc(),24,C(1,.5,2),{solid:0x1e1b2e,geo:'box',speed:9,grav:18,s0:.6,s1:1.8,spread:4,life:5})],[1.1,()=>dfDebris(mc().add(v3(0,6,0)),18,C(1,.5,2),{solid:0x1e1b2e,geo:'box',speed:12,grav:18,s0:.5,s1:1.4,spread:3,life:5})]],
+   upd(dt,t){if(Math.random()<.5){const c=mc();emit(c.x+rnd(-3,3),c.y+rnd(-6,8),c.z+rnd(-3,3),0,rnd(-1,1),0,COL.purple,.8,.8);}},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:2.8,fov:60,on(){dfImplode(mc(),COL.purple,26,1.2,10);sfx('whoosh',2);},upd(dt,t){if(B.mono&&s0){const k=Math.min(1,t/1.1);B.mono.scale.set(s0.x*Math.max(.02,1-easeI(k)),s0.y*(1+k*.4),s0.z*Math.max(.02,1-easeI(k)));}},
+   ev:[[1.15,()=>{const c=mc();explode(B);dfColumn(c.setY(PLAT_Y),C(2.4,2,3),2,300,2.2);dfNova(c,C(1.6,.7,3),3,70,1.4,.6);}]],cam:dfOrbit(B,52,12,1.6,1.8)}],
+  end(){if(B.mono&&s0)B.mono.scale.copy(s0);}};},
+ // IV · Aethelis — quatro últimas batidas: ondas douradas no ritmo, o escudo estilhaça, o corpo vira ouro e desmorona
+ aethelis:B=>{let tint=null;return {col:C(2.6,1.9,.5),shots:[
+  {d:2.6,fov:40,on(){sfx('roar',1.2);},ev:[[.2,()=>beat(0)],[.75,()=>beat(1)],[1.3,()=>beat(2)],[1.85,()=>beat(3)]],
+   cam(k,t,O,L){B.focus(L);const d=tmpA.subVectors(L,P.pos).setY(0).normalize();O.copy(P.pos).addScaledVector(d,-3-k).add(tmpB.set(d.z*2,.6,-d.x*2));L.y+=2;}},
+  {d:2.2,ts:.4,fov:30,on(){sfx('parry');flash(.5,.4);const c=B.sph[1]?B.sph[1].p:B.focus(new V3());dfDebris(c,40,C(2.8,2.2,.6),{geo:'oct',speed:22,grav:6,s0:.2,s1:.7});ringFx(c.clone(),C(2.8,2.2,.6),20,.8,true);tint=dfTint(B,0xfbbf24,2.4);},
+   upd(dt,t){if(tint)tint.set(Math.min(1,t/1.6));},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:2.6,fov:58,upd(dt,t){if(tint)tint.set(1);for(const s of B.sph)if(Math.random()<.6)emit(s.p.x+rnd(-s.r,s.r),s.p.y+rnd(-s.r,s.r),s.p.z+rnd(-s.r,s.r),0,-rnd(2,5),0,COL.gold,.6,1.5,10);},
+   ev:[[.9,()=>{for(const s of B.sph)dfDebris(s.p,30,C(2.6,1.8,.4),{solid:0xd4a017,geo:'tet',speed:9,grav:22,s0:.3,s1:1.1,spread:s.r,life:5});explode(B);dfNova(B.focus(new V3()),C(2.8,2.2,.6),2,50,1.2,.6);}]],cam:dfOrbit(B,34,6,.3,.7)}],
+  end(){if(tint)tint.restore();}};
+  function beat(i){const c=B.focus(new V3());shockRing(v3(c.x,PLAT_Y,c.z),30+i*12,40,0,C(2.6,1.9,.5));ringFx(c.clone(),C(2.8,2.2,.6),14+i*6,.5,true);sfx('heavy');shake=Math.max(shake,.3+i*.15);if(i===3)flash(.35,.4);}},
+ // V · XM-99 — a queda em espiral, a contagem de sobrecarga do núcleo e a explosão com destroços
+ xm99:B=>{const cs=B.core&&B.core.scale?B.core.scale.clone():null;let n=3;return {col:C(2.8,1.4,.4),shots:[
+  {d:3,fov:46,on(){sfx('rumble',2);},upd(dt){if(Math.random()<.7)burst(B.sph[Math.floor(Math.random()*B.sph.length)].p,COL.gold,4,12,.3,.6);},
+   cam(k,t,O,L){B.focus(L);O.copy(L).add(tmpA.set(Math.sin(1+k*.8)*24,6-k*3,Math.cos(1+k*.8)*24));}},
+  {d:2.6,fov:30,on(){n=3;},ev:[[.1,()=>cnt()],[.9,()=>cnt()],[1.7,()=>cnt()]],off(){cineNarr(null);},
+   upd(dt,t){if(B.core&&cs){const s=1+Math.abs(Math.sin(t*(6+t*6)))*.6*t;B.core.scale.set(cs.x*s,cs.y*s,cs.z*s);}shake=Math.max(shake,.15+t*.15);},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:2.8,fov:64,ev:[[.25,()=>{const c=B.focus(new V3());explode(B);dfNova(c,C(2.8,1.2,.3),2,55,1.5,.8);dfColumn(c.clone().setY(PLAT_Y),C(2.8,1.4,.4),9,70,2.4);
+    dfDebris(c,50,C(2.4,.8,.2),{solid:0x52525b,geo:'box',speed:34,grav:24,s0:.3,s1:1.4,life:5,up:true});for(let k=0;k<4;k++)setTimeout(()=>sfx('boom',.5),300+k*220);}]],cam:dfOrbit(B,60,16,1.8,2)}],
+  end(){if(B.core&&cs)B.core.scale.copy(cs);}};
+  function cnt(){cineNarr('NÚCLEO EXO · SOBRECARGA · '+n,true);tone('square',880,880,.15,.12);flash(.15,.2);n--;}},
+ // VI · O Devorador — o corpo explode em cadeia da cauda à cabeça, e a cabeça vira um buraco negro
+ devorador:B=>{const S=B.sph;let hole=null;return {col:C(2.4,.5,2.4),shots:[
+  {d:3.2,fov:50,on(){sfx('roar',.5);},ev:S.map((s,i)=>[.15+(S.length-1-i)*.17,()=>{burst(s.p,i%2?COL.pink:COL.purple,40,14,.6,1.1);ringFx(s.p.clone(),C(2.4,.5,2.4),12,.5,true);sfx('boom',.3);shake=Math.max(shake,.4);}]),
+   cam(k,t,O,L){const i=Math.round(lerp(S.length-1,0,easeIO(k))),p=S[Math.max(0,Math.min(S.length-1,i))].p;L.lerp(p,.15);if(t<.02)L.copy(p);O.copy(L).add(tmpA.set(18,8,18));}},
+  {d:2.3,ts:.5,fov:32,on(){sfx('roar',.4);B.jawT=1;},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:3,fov:58,on(){const c=S[0].p.clone();hole=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),new THREE.MeshBasicMaterial({color:0x000000}));hole.position.copy(c);hole.scale.setScalar(.1);scene.add(hole);dfImplode(c,COL.purple,30,1.6,12);sfx('whoosh',2.5);},
+   upd(dt,t){if(hole){const k=t<1.4?easeO(t/1.4)*7:Math.max(.01,7*(1-(t-1.4)*4));hole.scale.setScalar(k);}},
+   ev:[[1.65,()=>{const c=hole.position.clone();scene.remove(hole);hole=null;explode(B);dfNova(c,C(2.4,.5,2.4),1,80,1.6,.7);ringFx(c,C(.5,2.2,2.8),90,1.6,false);}]],cam:dfOrbit(B,44,10,.4,.7)}],
+  end(){if(hole)scene.remove(hole);}};},
+ // VII · Null Avatar — a realidade se inverte, tudo fica branco e então o silêncio
+ null:B=>({col:C(2.6,2.6,3),shots:[
+  {d:2.8,fov:30,on(){tone('sine',3400,3400,2.6,.03);},upd(dt,t){$('game').style.filter=Math.sin(t*(4+t*8))>0?'invert(1) grayscale(1)':'grayscale(1)';},off(){$('game').style.filter='grayscale(1)';},cam:(k,t,O,L)=>B.detail(k,t,O,L)},
+  {d:2.6,fov:72,on(){rampExposure(4,2.4);dfNova(B.focus(new V3()),C(3,3,3.2),1,90,2.6,.9);sfx('stinger');},upd(dt){shake=Math.max(shake,.2);},cam:dfOrbit(B,30,4,0,.6)},
+  {d:2.6,fov:60,on(){$('game').style.filter='none';explode(B);flash(1,2.4);rampExposure(1.18,1.6);},ev:[[1.2,()=>cineNarr('. . .',true)]],off(){cineNarr(null);},cam:dfOrbit(B,60,14,.6,.8)}]})};
 function bossDeath(B){if(B.dying)return;B.dying=true;B.active=false;B.hp=0;clearBullets();clearCombatFx();hideInventory();setView('single');setMusic(null);lockOn=false;
  if(B.cleanup)B.cleanup();
  const embers=(dt)=>{for(let k=0;k<3;k++)emit(P.pos.x+rnd(-14,14),P.pos.y+rnd(8,16),P.pos.z+rnd(-14,14),rnd(-.4,.4),-rnd(1,2.5),rnd(-.4,.4),Math.random()<.5?COL.gold:COL.white,.5,4);};
- playCine({blendIn:.25,upd:(dt,t)=>{if(B.g.visible&&B.dieAnim)B.dieAnim(dt*CN.ts,t);},shots:[
-  {d:1.7,ts:.18,fov:38,on(){flash(.85,.7);sfx('heart');hitStop=0;},cam(k,t,O,L){B.focus(L);const d=tmpA.subVectors(P.pos,L).setY(0).normalize();O.copy(L).addScaledVector(d,11-k*2.5).add(tmpB.set(-3,2.2,0));}},
-  {d:2.6,fov:48,ev:[[.1,()=>sfx('rumble',3)],[.5,()=>lightBeams(B)],[1.2,()=>lightBeams(B)],[1.9,()=>lightBeams(B)]],upd(dt,t){shake=Math.max(shake,.3+t*.2);if(Math.random()<.5)burst(B.focus(tmpA),COL.white,8,14,.6,1);},cam:camOrbit(o=>B.focus(o),20,4,0,1.1)},
-  {d:1.9,fov:30,ev:[[.3,()=>lightBeams(B)],[1,()=>{lightBeams(B);sfx('heart');}]],cam:(k,t,O,L)=>B.detail(k,t,O,L)},
-  {d:2.6,fov:62,ev:[[.55,()=>explode(B)]],cam(k,t,O,L){B.focus(L);const d=tmpA.subVectors(P.pos,L).setY(0).normalize();O.copy(L).addScaledVector(d,48+k*8).add(tmpB.set(10,10+k*4,0));}},
-  {d:5,fov:46,on(){cineNarr(B.deathLine,B.id==='vaelis');sfx('chime');restorePlayer();},upd:embers,cam:camDolly(v3(6,PLAT_Y+1.8,46),v3(9,PLAT_Y+12,56),v3(0,PLAT_Y+1.6,38),v3(0,PLAT_Y+2.4,36))},
-  {d:1.5,fov:46,on(){cineNarr(null);fadeTo(1,1.2);},upd:embers,cam:camFix(v3(9,PLAT_Y+12,56),v3(0,PLAT_Y+2.4,36))}],
+ const sig=(DEATH[B.id]||DEATH.generic)(B),F=o=>B.focus(o);
+ // 1) o golpe final congela o tempo: câmera sobre o ombro do jogador, empurrando o zoom até o chefe
+ const impact={d:1.8,ts:.1,fov:k=>40-k*12,on(){flash(.9,.6);sfx('heart');sfx('stinger');hitStop=0;rampExposure(1.5,.25);shockRing(v3(P.pos.x,P.pos.y,P.pos.z),18,30,0,sig.col);},
+  off(){rampExposure(1.18,.8);},
+  cam(k,t,O,L){F(L);const d=tmpA.subVectors(L,P.pos).setY(0);if(d.lengthSq()<1)d.set(0,0,-1);d.normalize();const r=tmpB.set(d.z,0,-d.x);
+   O.copy(P.pos).addScaledVector(d,-(4.2-k*1.4)).addScaledVector(r,1.3).add(tmpC.set(0,2.1,0));}};
+ // 3) o desfecho: herói em contraluz, cartão do selo rompido e a última fala
+ const hero=o=>o.set(P.pos.x,P.pos.y+1.3,P.pos.z),ha=P.facing+Math.PI*.8;
+ const after=[{d:5.2,fov:42,on(){cineNarr(B.deathLine,B.id==='vaelis');sfx('chime');restorePlayer();cineCard('SELO '+B.no+' · ROMPIDO',B.name,B.title);},off(){cineCard(null);},upd:embers,cam:camOrbit(hero,7.5,1.1,ha,ha+.7,.3)},
+  {d:1.5,fov:42,on(){cineNarr(null);fadeTo(1,1.2);},upd:embers,cam:camOrbit(hero,7.5,1.1,ha+.7,ha+.85,.3)}];
+ playCine({blendIn:.25,upd:(dt,t)=>{if(B.g.visible&&B.dieAnim)B.dieAnim(dt*CN.ts,t);if(sig.upd)sig.upd(dt*CN.ts,t);},shots:[impact,...sig.shots,...after],
   // o próximo guardião não desce mais direto: o Arauto do Vazio libera o selo seguinte (depois do Devorador, a provação do altar leva à emboscada / à Lança)
-  onEnd(){B.g.visible=false;B.dying=false;G.boss=null;if(G.idx===6){HER.st='ALL_CLEARED';herSave();finalChoice();}else heraldBossDown(G.idx);}});}
+  onEnd(){B.g.visible=false;B.dying=false;G.boss=null;$('game').style.filter='none';setExposure(1.18);if(sig.end)sig.end();if(G.idx===6){HER.st='ALL_CLEARED';herSave();finalChoice();}else heraldBossDown(G.idx);}});}
 function phaseCine(B,kind){const F=o=>B.focus(o);
  if(kind==='tri')playCine({blendIn:.4,blendOut:.6,shots:[
   {d:1.7,fov:52,on(){sfx('roar',.5);B.jawT=1;cineNarr('INSTÂNCIA TRIPLA PARALELA // ALPHA · BETA · GAMMA',true);},cam:camOrbit(F,42,10,0,.5)},
@@ -3985,7 +4098,30 @@ function heraldBuild(){const g=new THREE.Group();g.visible=false;scene.add(g);
  const bg=new THREE.CylinderGeometry(1,1,1,24,1,true);bg.translate(0,.5,0);
  const b1=new THREE.Mesh(bg,addMat(C(1.5,.4,2.8),.28));b1.scale.set(1.5,70,1.5);b1.position.y=-1.2;const b2=new THREE.Mesh(bg,addMat(C(.3,2,2.8),.5));b2.scale.set(.35,70,.35);b2.position.y=-1.2;beam.add(b1,b2);
  const glyph=new THREE.Mesh(new THREE.RingGeometry(1.9,2.4,6,1),addMat(C(1.4,.5,2.6),.45));glyph.rotation.x=-Math.PI/2;glyph.position.y=-1.15;g.add(glyph);
- Object.assign(HER,{g,slit,slitM,coreM,lantern,lanM,lanCore,lanGlow,lanL,rings,beam,glyph});}
+ Object.assign(HER,{g,slit,slitM,coreM,lantern,lanM,lanCore,lanGlow,lanL,rings,beam,glyph,lanY:1.98});
+ if(window.HERALD_MODEL&&window.MeshoptDecoder)MeshoptDecoder.ready.then(heraldModel).catch(e=>console.warn('arauto:',e));}
+// modelo 3D (cosmic_entity.glb → herald-model.js): manto, capuz, anéis e orbe próprios; o corpo procedural vira reserva.
+// A Lanterna do Limiar (cor do estado da missão) passa a brilhar dentro do orbe que flutua junto à mão direita do modelo.
+function heraldModel(){const M=window.HERALD_MODEL,g=HER.g,S=3.7/(2*M.hs[1]);
+ const geo=mpDecode(M,M.parts[0],S);geo.computeVertexNormals();geo.computeBoundingBox();const bb=geo.boundingBox;
+ const mat=mpMaterial(M,{emissiveIntensity:1.25,envMapIntensity:1.1,side:THREE.DoubleSide});
+ const m=new THREE.Mesh(geo,mat);m.position.y=-bb.min.y-.15;m.castShadow=true;g.add(m);
+ g.children.forEach(c=>{if(c!==m&&c!==HER.lantern&&c!==HER.beam&&c!==HER.glyph)c.visible=false;});
+ const p=geo.attributes.position,acc=new V3();let n=0;
+ for(let i=0;i<p.count;i++){const x=p.getX(i)/S,y=p.getY(i)/S;if(x>.17&&x<.42&&y>.12&&y<.5){acc.x+=p.getX(i);acc.y+=p.getY(i);acc.z+=p.getZ(i);n++;}}
+ if(n){acc.multiplyScalar(1/n).add(m.position);HER.lantern.position.copy(acc);HER.lanY=acc.y;}
+ HER.lanM.visible=false;HER.lanCore.visible=false;HER.lanGlow.scale.setScalar(1.1);HER.model={m,mat,orb:acc.clone(),n};
+ // o retrato espera as texturas (senão o emissivo sai chapado em branco)
+ let tries=0;const go=()=>{const ok=[mat.map,mat.emissiveMap].every(t=>!t||(t.image&&t.image.complete&&t.image.naturalWidth));
+  if(!ok&&++tries<60){setTimeout(go,150);return;}try{heraldPortrait(geo,mat,bb);}catch(e){console.warn('retrato:',e);}};go();}
+// retrato pixelado para a caixa de diálogo: renderiza o busto do modelo em 96×96 num contexto à parte e amplia sem suavizar
+function heraldPortrait(geo,mat,bb){const N=96,cv=document.createElement('canvas');cv.width=cv.height=N;
+ const r=new THREE.WebGLRenderer({canvas:cv,alpha:true,antialias:false,preserveDrawingBuffer:true});r.outputEncoding=THREE.sRGBEncoding;r.setClearColor(0x0b0620,1);
+ const sc=new THREE.Scene();sc.add(new THREE.HemisphereLight(0xc4b5fd,0x1e1250,1.4));const dl=new THREE.DirectionalLight(0xa5f3fc,1.6);dl.position.set(1,2,3);sc.add(dl);
+ sc.add(new THREE.Mesh(geo,mat));const h=bb.max.y-bb.min.y,top=bb.max.y-h*.18;
+ const cam=new THREE.PerspectiveCamera(30,1,.05,50);cam.position.set(0,top,h*.95);cam.lookAt(0,top-h*.02,0);r.render(sc,cam);
+ const url=cv.toDataURL('image/png');r.dispose();r.forceContextLoss();
+ document.documentElement.style.setProperty('--herPortrait',`url(${url})`);}
 
 // ---------- objetos das provações ----------
 function herClear(){for(const o of HER.objs)HER.root.remove(o.m);HER.objs.length=0;}
@@ -4089,7 +4225,7 @@ function heraldTick(dt){const g=HER.g;if(!g)return;HER.t+=dt;const t=HER.t,M=HER
   if(glitch&&Math.random()<.08){g.position.x+=rnd(-.4,.4);g.position.y+=rnd(-.2,.2);}
   const yawT=Math.atan2(P.pos.x-p.x,P.pos.z-p.z);g.rotation.y+=wrapA(yawT-g.rotation.y)*Math.min(1,dt*2);
   for(const R of HER.rings){R.piv.rotation.y+=dt*R.sp*(HER.summonT>0?6:1);R.piv.rotation.x+=dt*R.sp*.5;}
-  HER.lantern.rotation.y-=dt*1.5;HER.lantern.position.y=1.98+Math.sin(t*2.3)*.05;HER.glyph.rotation.z+=dt*.3;
+  HER.lantern.rotation.y-=dt*1.5;HER.lantern.position.y=HER.lanY+Math.sin(t*2.3)*.05;if(HER.model)HER.model.mat.emissiveIntensity=1.1+.35*Math.sin(t*1.7)+(HER.st==='READY_TO_SUMMON'?.6:0);HER.glyph.rotation.z+=dt*.3;
   const col=HER.st==='READY_TO_SUMMON'?[0xa855f7,C(2.2,.8,3.2)]:HER.st==='IN_PROGRESS'?[t%2<1?0xf59e0b:0x38bdf8,t%2<1?C(2.8,1.8,.4):C(.4,2,3)]:[0xe2e8f0,C(2.2,2.2,2.4)];
   HER.lanM.emissive.setHex(col[0]);HER.lanCore.material.color.copy(col[1]);HER.lanGlow.material.color.copy(col[1]);HER.lanL.color.setHex(col[0]);
   HER.beam.visible=HER.st==='READY_TO_SUMMON'||HER.summonT>0;if(HER.beam.visible)HER.beam.children[0].material.opacity=.22+.08*Math.sin(t*3);
@@ -4195,6 +4331,109 @@ setInterval(()=>{const a=THEME.el;if(!a)return;const d=THEME.target-a.volume;a.v
 themePlay(.6); // título
 {const kick=()=>{if(THEME.want&&THEME.el&&THEME.el.paused)themePlay(THEME.target);removeEventListener('pointerdown',kick,true);removeEventListener('keydown',kick,true);};
  addEventListener('pointerdown',kick,true);addEventListener('keydown',kick,true);}
+
+// =====================================================================
+//  TEMA DA UI — "Firmamento em pixel": molduras violeta/ciano em neon, cristais e estrelas de quatro pontas
+//  em pixel art nos cantos, barras com pontas de flecha e fonte pixelada. Vai por último no <head>, então
+//  sobrepõe o estilo base e os estilos injetados pelos módulos (Memorial, Arauto).
+// =====================================================================
+{const px=(w,h,rects)=>`url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${w} ${h}' shape-rendering='crispEdges'>${rects}</svg>`)}")`;
+ const R=(c,l)=>l.map(([x,y,w,h])=>`<rect x='${x}' y='${y}' width='${w||1}' height='${h||1}' fill='${c}'/>`).join('');
+ // estrela de quatro pontas (9×9) e um cacho de cristais (12×12), desenhados pixel a pixel
+ const STAR=px(9,9,R('#7dd3fc',[[4,0,1,9],[0,4,9,1]])+R('#c4b5fd',[[3,3,3,3]])+R('#ffffff',[[4,1,1,7],[1,4,7,1]])+R('#ffffff',[[4,4]]));
+ const CRYS=px(12,12,R('#3b1d8f',[[2,4,3,8],[6,1,3,11],[9,6,2,6]])+R('#7c5cff',[[3,5,1,6],[7,2,1,9],[10,7,1,4]])+R('#a5f3fc',[[3,4],[7,1],[7,3],[10,6]])+R('#e0e7ff',[[8,2,1,4],[4,6,1,3]]));
+ const ARW='polygon(10px 0,calc(100% - 10px) 0,100% 50%,calc(100% - 10px) 100%,10px 100%,0 50%)';
+ const css=`
+:root{--display:'Pixelify Sans','Chakra Petch',system-ui,sans-serif;--pix:'Silkscreen','Pixelify Sans',monospace;
+ --violet:#7c5cff;--cyan:#38bdf8;--gold:#fde68a;--mute:#a8a2d8;--ink:#f1edff;
+ --fr:#6d4aff;--fr2:#38bdf8;--panel:linear-gradient(180deg,rgba(24,14,58,.88),rgba(8,5,24,.93));
+ --glow:0 0 0 1px rgba(56,189,248,.45),0 0 16px rgba(124,92,255,.55),inset 0 0 22px rgba(124,92,255,.22);--star:${STAR};--crys:${CRYS}}
+/* moldura padrão */
+#stats,#boss,#gauntlet,#herQ,#memDlg,#dlg,#hint,#memPrompt,.buff,.screen .card,#legacy{background:var(--panel);border:2px solid var(--fr);box-shadow:var(--glow);clip-path:none;border-radius:0;image-rendering:pixelated}
+#stats::before,#boss::before,#gauntlet::before,#herQ::before,#dlg::before,.screen .card::before{content:"";position:absolute;left:-12px;top:-14px;width:26px;height:26px;background:var(--crys) center/contain no-repeat;filter:drop-shadow(0 0 4px #7c5cff);pointer-events:none}
+#stats::after,#boss::after,#gauntlet::after,#herQ::after,#memDlg::after,#dlg::after,.screen .card::after{content:"";position:absolute;right:-10px;bottom:-10px;width:20px;height:20px;background:var(--star) center/contain no-repeat;filter:drop-shadow(0 0 5px #38bdf8);animation:twk 2.4s ease-in-out infinite;pointer-events:none}
+@keyframes twk{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(.7) rotate(45deg);opacity:.7}}
+/* status do jogador */
+#stats{padding:14px 16px 12px;border-left-width:2px}
+.lab{font:700 10px/1 var(--pix);letter-spacing:.06em;color:#c4b5fd}
+.bar{height:12px;background:rgba(6,4,20,.9);clip-path:${ARW};box-shadow:none}
+.bar::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 5px,rgba(6,4,20,.55) 5px 6px),linear-gradient(180deg,rgba(255,255,255,.28),transparent 45%,rgba(0,0,0,.25));pointer-events:none}
+.hp i{background:linear-gradient(90deg,#d6143a,#ff3d6e,#ff7ac8)}
+.fly i{background:linear-gradient(90deg,#1e40af,#38bdf8,#a5f3fc)}
+.rage i{background:linear-gradient(90deg,#7f1d1d,#ef4444,#fb923c)}
+.adr i{background:linear-gradient(90deg,#4c1d95,#a855f7,#67e8f9)}
+.row b{font:700 12px/1 var(--pix);color:#fff}
+kbd{font:700 10px/1 var(--pix);border:2px solid #4c3a9e;border-radius:0;background:rgba(10,6,30,.8);color:#c4b5fd}
+.buff{border:2px solid currentColor;font-family:var(--pix);font-size:10px}
+/* armas */
+.slot{background:linear-gradient(180deg,rgba(28,16,66,.92),rgba(8,5,24,.95));border:2px solid #3f2d8c;box-shadow:inset 0 0 12px rgba(124,92,255,.25);border-radius:0;opacity:.6}
+.slot.on{border-color:var(--c);box-shadow:0 0 0 1px rgba(56,189,248,.6),0 0 18px -2px var(--c),inset 0 0 14px rgba(124,92,255,.4)}
+.slot .k{font:700 9px/1 var(--pix);color:#a5b4fc}.slot .n{font:600 11px/1.15 var(--display)}
+.slot .tag{font-family:var(--pix);font-size:8px}
+/* chefe */
+#boss{padding:12px 20px 10px;width:min(680px,84vw)}
+#bossName{font:700 20px/1 var(--display);letter-spacing:.16em;text-shadow:0 0 12px #7c5cff,2px 2px 0 #1e1250}
+#bossTitle{font:400 10px/1 var(--pix);letter-spacing:.12em;color:#7dd3fc}
+.bbar{height:16px;border:0;background:#2a1c6b;clip-path:${ARW};padding:2px}
+.bbar::after{content:"";position:absolute;inset:2px;background:repeating-linear-gradient(90deg,transparent 0 7px,rgba(6,4,20,.5) 7px 8px),linear-gradient(180deg,rgba(255,255,255,.3),transparent 50%);clip-path:${ARW};pointer-events:none}
+.bbar i,.bbar s{inset:2px;clip-path:${ARW}}
+.bbar i{background:linear-gradient(90deg,#b0103a,#ff3d6e,#ff8ad8)}
+.bbar em{background:#fff;box-shadow:0 0 6px #38bdf8;z-index:2}
+#bossHp,#bossPhase{font-family:var(--pix);font-size:10px}
+.chip{font-family:var(--pix);font-size:9px;border-width:2px}
+/* gauntlet */
+#gauntlet{padding:12px 14px}
+#gauntlet h4{font:700 10px/1 var(--pix);color:#7dd3fc}
+.gi{font:500 12px/1.3 var(--display)}
+.gi i{border:2px solid #6d4aff;background:transparent}
+.gi.cur i{background:#38bdf8;border-color:#e0f2fe;box-shadow:0 0 8px #38bdf8}.gi.done i{background:#4c3a9e;border-color:#4c3a9e}
+#hint{font:500 11px/1.6 var(--display)}#hint b{color:#7dd3fc}
+#toast{font:700 26px/1.1 var(--display);text-shadow:0 0 18px #7c5cff,3px 3px 0 #1e1250}
+.dn{font-family:var(--display);text-shadow:2px 2px 0 #1e1250,0 0 10px #7c5cff}
+/* missão do Arauto e marcadores */
+#herQ{padding:12px 18px 12px}
+#herT{font:700 11px/1.2 var(--pix);color:#c4b5fd;letter-spacing:.08em}
+#herO{font:500 14px/1.4 var(--display)}
+#herO kbd,#memPrompt kbd,#memDlg kbd,#legacy kbd{background:#38bdf8;color:#0b0620;border:0}
+#herQ .hbar{height:8px;clip-path:${ARW};background:#1e1250}#herQ .hbar i{background:linear-gradient(90deg,#38bdf8,#a855f7,#ff7ac8)}
+#herQ.ready{border-color:#38bdf8}
+.hmk i{border:2px solid #fff;background:#7c5cff;box-shadow:0 0 10px #38bdf8;transform:rotate(45deg) scale(.9)}.hmk b{font-family:var(--pix);font-size:9px}
+/* diálogos com retrato */
+#memDlg,#dlg{border-color:var(--fr);padding:16px 22px 14px}
+#memDlg.herald{background:var(--panel);border-color:#a855f7;padding-left:132px;min-height:118px}
+#memDlg.herald::before{content:"";position:absolute;left:14px;top:14px;width:100px;height:100px;border:2px solid #38bdf8;background:var(--herPortrait,radial-gradient(circle at 50% 40%,#7c5cff,#0b0620 70%)) center/cover no-repeat,#0b0620;box-shadow:0 0 12px #7c5cff,inset 0 0 16px #000;image-rendering:pixelated}
+#memWho,#dlg .who{font:700 11px/1 var(--pix);letter-spacing:.12em;color:#7dd3fc}
+#memDlg.herald #memWho{color:#e9d5ff}
+#memTxt{font:500 clamp(15px,1.6vw,19px)/1.5 var(--display);color:#f1edff}
+#memOpt{font-family:var(--pix);font-size:10px}
+#dlg .tx{font:500 clamp(16px,1.7vw,21px)/1.5 var(--display);color:#f1edff}#dlg .ct,#dlg .nx{font-family:var(--pix);color:#a5b4fc}
+#memPrompt{font:700 13px/1 var(--display);color:#e0e7ff}
+#legacy{padding:8px 12px}#legacy .lh{font-family:var(--pix);color:#c4b5fd}#legacy .lbar{clip-path:${ARW};border:0;background:#1e1250}
+#sub b{font-family:var(--pix);color:#7dd3fc}
+#card .no{font-family:var(--pix);color:#7dd3fc;letter-spacing:.2em}
+#card b{font-family:var(--display);text-shadow:0 0 30px #7c5cff,4px 4px 0 #1e1250}
+#card hr{background:linear-gradient(90deg,#38bdf8,#a855f7,transparent)}
+#narr.sys{font-family:var(--display)}
+/* botões com pontas de estrela */
+button.go,#choice button{position:relative;font:700 15px/1 var(--display);letter-spacing:.14em;color:#fff;background:linear-gradient(180deg,#3b2aa8,#1e1563);border:2px solid #a5b4fc;box-shadow:0 0 0 2px #1e1250,0 0 18px rgba(124,92,255,.7);clip-path:none;padding:15px 44px;text-shadow:2px 2px 0 #120a3a}
+button.go::before,button.go::after,#choice button::before,#choice button::after{content:"";position:absolute;top:50%;width:18px;height:18px;margin-top:-9px;background:var(--star) center/contain no-repeat;filter:drop-shadow(0 0 4px #38bdf8)}
+button.go::before,#choice button::before{left:-11px}button.go::after,#choice button::after{right:-11px}
+button.go:hover,#choice button:hover,#choice button:focus-visible{background:linear-gradient(180deg,#5b46e0,#2a1e8a);filter:none}
+#choice button kbd{background:#38bdf8;color:#0b0620}
+#choice button.q{border-color:#fda4af;background:linear-gradient(180deg,#7f1d3a,#3b0a1e)}
+/* telas */
+.screen{background:radial-gradient(ellipse at 50% 35%,rgba(76,29,149,.45),rgba(4,2,14,.94) 70%),var(--starfield);}
+.screen .card{position:relative;padding:34px 40px 30px;max-width:820px}
+.card .pre{font:700 11px/1 var(--pix);letter-spacing:.2em;color:#7dd3fc}
+.card h1{font:700 clamp(40px,8vw,88px)/.95 var(--display);letter-spacing:.06em;background:linear-gradient(180deg,#fff 15%,#c4b5fd 55%,#6d4aff);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(4px 4px 0 #1e1250) drop-shadow(0 0 22px rgba(124,92,255,.6))}
+.card .tag2{font:500 clamp(17px,2.2vw,24px)/1.2 var(--display);color:#a5f3fc}
+.keys span b{font:700 10px/1 var(--pix);color:#7dd3fc}
+#credits dl{font-family:var(--display)}
+`;
+ const st=document.createElement('style');st.id='cosmicUI';
+ // céu estrelado em pixel para as telas (estrelinhas espalhadas)
+ let sf='';for(let i=0;i<40;i++){const x=Math.floor(Math.random()*200),y=Math.floor(Math.random()*200),c=['#fff','#a5f3fc','#c4b5fd'][i%3];sf+=`<rect x='${x}' y='${y}' width='${i%7?1:2}' height='${i%7?1:2}' fill='${c}'/>`;}
+ st.textContent=css.replace('var(--starfield)',px(200,200,sf)+' 0 0/400px 400px');document.head.appendChild(st);}
 
 </script>
 </body></html>
