@@ -636,7 +636,25 @@ const pMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:
  fragmentShader:`varying vec3 vC;varying float vA;void main(){float d=length(gl_PointCoord-.5);float a=smoothstep(.5,0.,d)*vA;if(a<.01)discard;gl_FragColor=vec4(vC*a,a);}`});
 const pts=new THREE.Points(pGeo,pMat);pts.frustumCulled=false;scene.add(pts);
 let pHead=0;
-function emit(x,y,z,vx,vy,vz,c,size,life,grav,drag){const i=pHead;pHead=(pHead+1)%PMAX;pPos[i*3]=x;pPos[i*3+1]=y;pPos[i*3+2]=z;pVel[i*3]=vx;pVel[i*3+1]=vy;pVel[i*3+2]=vz;
+// ---------- paleta de ataques por chefe ----------
+// Enquanto a IA de um chefe roda (e nos efeitos que ela cria), toda cor de ataque — projéteis, anéis, raios, feixes,
+// partículas — é trocada por uma das três cores do chefe, escolhida pelo matiz original (ataques diferentes continuam
+// diferentes entre si) e com o mesmo brilho. Cores quase brancas viram a 4ª cor (o "núcleo" do chefe).
+const BPAL={on:null};
+const BPALS=(()=>{const P={aethelgard:[[2.8,2,.4],[2.9,1.1,.25],[.4,2.4,2.6],[3,2.6,1.6]],
+ vaelis:[[2.8,.35,1.8],[.3,2.4,2.8],[1.6,.4,3],[2.6,2,2.8]],
+ apeiron:[[1.6,.5,3],[.5,.6,3],[2.4,.6,2.8],[2,1.9,3]],
+ aethelis:[[2.8,2.1,.5],[2.8,.4,.45],[2.9,2.6,1.6],[3,2.8,2]],
+ xm99:[[.35,1.2,3],[3,1.15,.15],[.4,2.8,.5],[1.6,2.4,3]],
+ devorador:[[1.9,.4,3],[.6,2.8,.5],[2.9,.4,1.6],[2.2,1.6,3]],
+ null:[[2.6,2.6,2.8],[1.2,2.4,3],[2.9,.35,.45],[3,3,3]]};
+ for(const k in P)P[k]=P[k].map(a=>({r:a[0],g:a[1],b:a[2],m:Math.max(...a)}));return P;})();
+const BPC=new THREE.Color();
+function bpal(c){const P=BPAL.on&&BPALS[BPAL.on];if(!P||!c||c.r===undefined)return c;const r=c.r,g=c.g,b=c.b,mx=Math.max(r,g,b),mn=Math.min(r,g,b);if(mx<=0)return c;
+ const s=(mx-mn)/mx;if(s<.28){const p=P[3],k=mx/p.m;return BPC.setRGB(lerp(r,p.r*k,.6),lerp(g,p.g*k,.6),lerp(b,p.b*k,.6));}
+ const d=mx-mn;let h=mx===r?((g-b)/d+6)%6:mx===g?(b-r)/d+2:(r-g)/d+4;h/=6;
+ const p=P[Math.floor(((h+.08)%1)*3)%3],k=mx/p.m;return BPC.setRGB(p.r*k,p.g*k,p.b*k);}
+function emit(x,y,z,vx,vy,vz,c,size,life,grav,drag){if(BPAL.on)c=bpal(c);const i=pHead;pHead=(pHead+1)%PMAX;pPos[i*3]=x;pPos[i*3+1]=y;pPos[i*3+2]=z;pVel[i*3]=vx;pVel[i*3+1]=vy;pVel[i*3+2]=vz;
   pCol[i*3]=c.r;pCol[i*3+1]=c.g;pCol[i*3+2]=c.b;pS0[i]=size;pSize[i]=size;pLife[i]=life;pMax[i]=life;pGrav[i]=grav||0;pDrag[i]=drag||0;pAlpha[i]=1;}
 const C=(r,g,b)=>new THREE.Color(r,g,b);
 const COL={pink:C(2.6,.35,1.7),gold:C(2.4,1.8,.4),blue:C(.4,1.2,3),purple:C(1.7,.5,3),cyan:C(.3,2.4,2.6),white:C(2.2,2.2,2.6),red:C(2.8,.3,.4),yellow:C(2.8,2.4,.4)};
@@ -658,9 +676,9 @@ function updateMotes(t,pp){for(let i=0;i<MOTES;i++){const k=i*3;let x=mPos[k],z=
 
 // ---------- efeitos ----------
 const effects=[];
-function addFx(o){effects.push(o);return o;}
-const addMat=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o===undefined?1:o,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-const glowSprite=(c,s)=>{const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:c,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true}));sp.scale.setScalar(s);return sp;};
+function addFx(o){if(BPAL.on&&o.update){const id=BPAL.on,u=o.update;o.update=function(dt){const pv=BPAL.on;BPAL.on=id;try{return u.call(this,dt);}finally{BPAL.on=pv;}};}effects.push(o);return o;}
+const addMat=(c,o)=>new THREE.MeshBasicMaterial({color:bpal(c),transparent:true,opacity:o===undefined?1:o,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+const glowSprite=(c,s)=>{const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:bpal(c),blending:THREE.AdditiveBlending,depthWrite:false,transparent:true}));sp.scale.setScalar(s);return sp;};
 const ringGeo=new THREE.RingGeometry(.92,1,64);ringGeo.rotateX(-Math.PI/2);
 const discGeo=new THREE.CircleGeometry(1,48);discGeo.rotateX(-Math.PI/2);
 function telegraph(pos,r,dur,color){const g=new THREE.Group();const ring=new THREE.Mesh(ringGeo,addMat(color||C(2,.2,.6),.9));const disc=new THREE.Mesh(discGeo,addMat(color||C(2,.2,.6),.15));
@@ -958,6 +976,14 @@ const MXS2={body:new THREE.Quaternion(),torso:new THREE.Quaternion(),head:new TH
  sh:[new THREE.Quaternion(),new THREE.Quaternion()],el:[new THREE.Quaternion(),new THREE.Quaternion()],hip:[new THREE.Quaternion(),new THREE.Quaternion()],kn:[new THREE.Quaternion(),new THREE.Quaternion()]};
 // as molas da animação procedural continuam rodando por baixo: no início de cada quadro a pose delas é devolvida
 {const d0=dash;dash=function(){const was=P.dashT;d0();if(P.dashT>0&&!(was>0))P.mxDashT=0;};}
+// o rolamento do dash abaixa o quadril e gira o corpo inteiro: mede o ponto mais baixo (cabeça, costas, mãos, joelhos, pés)
+// e sobe o corpo o quanto for preciso para nada atravessar o chão
+const MXG=[[()=>head,0,.32,0],[()=>head,0,0,.15],[()=>torso,0,.35,-.2],[()=>torso,0,.35,.2],[()=>torso,0,0,-.18],[()=>arms[0].hand,0,0,0],[()=>arms[1].hand,0,0,0],
+ [()=>legs[0].knee,0,0,0],[()=>legs[1].knee,0,0,0],[()=>legs[0].knee,0,-.54,.2],[()=>legs[1].knee,0,-.54,.2],[()=>legs[0].knee,0,-.54,-.12],[()=>legs[1].knee,0,-.54,-.12]];
+const mxGv=new V3(),mxGs=new V3();
+function mxGroundClamp(){player.updateMatrixWorld(true);let mn=1e9;
+ for(const [o,x,y,z] of MXG){mxGv.set(x,y,z);o().localToWorld(mxGv);if(mxGv.y<mn)mn=mxGv.y;}
+ const floor=player.position.y+.03;if(mn<floor){body.parent.getWorldScale(mxGs);body.position.y+=(floor-mn)/mxGs.y;}}
 function mxRestore(){for(const s of MX.saved)s[0].rotation.set(s[1],s[2],s[3]);if(MX.savedY!==undefined)body.position.y=MX.savedY;MX.saved.length=0;MX.savedY=undefined;}
 const mxQY=new THREE.Quaternion(),mxQ=new THREE.Quaternion();
 function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==kn){MX.built=mxBuild();MX.kn=kn;}const B=MX.built;if(!B)return;
@@ -988,7 +1014,7 @@ function mxApply(dt,c){const kn=!!player.userData.knight;if(!MX.built||MX.kn!==k
   mxQY.setFromAxisAngle(UP_,body.rotation.y);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wi);body.position.y=lerp(body.position.y,s.y,wi);
   torso.quaternion.slerp(s.torso,wi);head.quaternion.slerp(s.head,wi*.85);
   for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wi);legs[j].knee.quaternion.slerp(s.kn[j],wi);arms[j].sh.quaternion.slerp(s.sh[j],wi);arms[j].el.quaternion.slerp(s.el[j],wi);}}
- if(wd>.002){const s=ds;mxQY.setFromAxisAngle(UP_,P._yaw||0);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wd);
+ if(wd>.002){const s=ds;mxQY.setFromAxisAngle(UP_,body.rotation.y);body.quaternion.slerp(mxQ.copy(mxQY).multiply(s.body),wd);
   if(!P.flying)body.position.y=lerp(body.position.y,s.y*.55,wd);torso.quaternion.slerp(s.torso,wd);head.quaternion.slerp(s.head,wd*.8);
   for(let j=0;j<2;j++){legs[j].hip.quaternion.slerp(s.hip[j],wd);legs[j].knee.quaternion.slerp(s.kn[j],wd);arms[j].sh.quaternion.slerp(s.sh[j],wd);arms[j].el.quaternion.slerp(s.el[j],wd);}}
  if(dw>.002&&B.draw){const s=mxSample(B.draw,Math.max(0,P.drawT)*.9,false,MXS);
@@ -1500,7 +1526,7 @@ const BU={n:0};const BKEYS=['px','py','pz','vx','vy','vz','r','life','dmg','home
 BKEYS.forEach(k=>BU[k]=new Float32Array(BMAX));
 function bullet(x,y,z,vx,vy,vz,o){if(BU.n>=BMAX)return -1;o=o||{};const i=BU.n++;BU.px[i]=x;BU.py[i]=y;BU.pz[i]=z;BU.vx[i]=vx;BU.vy[i]=vy;BU.vz[i]=vz;
  BU.r[i]=o.r||.45;BU.life[i]=o.life||7;BU.dmg[i]=o.dmg||60;BU.home[i]=o.home||0;BU.acc[i]=o.acc||0;BU.spin[i]=o.spin||0;BU.delay[i]=o.delay||0;BU.ret[i]=o.ret||0;BU.grav[i]=o.grav||0;
- const c=o.col||C(2.6,.6,2);BU.cr[i]=c.r;BU.cg[i]=c.g;BU.cb[i]=c.b;return i;}
+ const c=bpal(o.col||C(2.6,.6,2));BU.cr[i]=c.r;BU.cg[i]=c.g;BU.cb[i]=c.b;return i;}
 function bKill(i){const L=--BU.n;if(i!==L)for(const k of BKEYS)BU[k][i]=BU[k][L];}
 function clearBullets(){BU.n=0;bulletIM.count=0;}
 function updateBullets(dt){const cx=P.pos.x,cy=P.pos.y+1.2,cz=P.pos.z;const parry=P.blocking&&WEAP[P.weapon].id==='claymore'&&P.parryT<.2;
@@ -1810,7 +1836,9 @@ function updatePlayer(dt){
   for(const t of TREES){const dx=P.pos.x-t.x,dz=P.pos.z-t.z;if(Math.abs(dx)>3||Math.abs(dz)>3)continue;if(P.pos.y>t.y+7*t.s||P.pos.y<t.y-2)continue;const rr=.75*t.s+.4;const d=Math.hypot(dx,dz);if(d<rr&&d>.001){P.pos.x=t.x+dx/d*rr;P.pos.z=t.z+dz/d*rr;}}}
  if(mod===0&&P.pos.y>PLAT_Y+24){P.pos.y=PLAT_Y+24;P.vel.y=Math.min(0,P.vel.y);}
  const gy=getGround(P.pos.x,P.pos.z,P.pos.y);
- if(P.pos.y<=gy){P.pos.y=gy;if(P.vel.y<0){if(P.vel.y<-9&&!P.onGround)P.landK=Math.min(1,-P.vel.y/32);if(P.vel.y<-25)burst(P.pos,COL.purple,20,6,.5,.7);P.vel.y=0;}P.onGround=true;if(P.flying&&keys.KeyC)P.flying=false;}
+ if(P.pos.y<=gy){P.pos.y=gy;if(P.vel.y<0){if(P.vel.y<-9&&!P.onGround)P.landK=Math.min(1,-P.vel.y/32);if(P.vel.y<-25)burst(P.pos,COL.purple,20,6,.5,.7);P.vel.y=0;}P.onGround=true;
+  // tocar o chão voando = pousar (antes só saía do voo segurando C, e o jogador ficava "voando" em pé no chão, sem idle)
+  if(P.flying&&!keys.Space&&P.dashT<=0){P.flying=false;P.landK=Math.max(P.landK||0,.35);burst(P.pos,COL.cyan,14,5,.4,.6);}}
  else P.onGround=P.pos.y-gy<.05;
  if(P.onGround&&!P.flying){P.fly=FLY_MAX;if(gy>-5&&!inPit)P.lastSafe.copy(P.pos);}
  if(P.pos.y<-75&&!MEM.inside){P.pos.copy(P.lastSafe);P.pos.y+=2;P.vel.set(0,0,0);hurtPlayer(60,null,{unblockable:true});toast('O VAZIO TE DEVOLVEU',1.5);}
@@ -1947,6 +1975,7 @@ function animatePlayer(dt,hs){mxRestore();const t=clock.elapsedTime;dt=Math.min(
  spr(legs[0].knee,'rotation','x',q.kR,lf+1,.7,dt);spr(legs[1].knee,'rotation','x',q.kL,lf+1,.7,dt);
  spr(legs[0].hip,'rotation','z',q.zR,3,.8,dt);spr(legs[1].hip,'rotation','z',q.zL,3,.8,dt);
  mxApply(dt,{ground:P.onGround&&!P.flying,atk,aim:P.aiming&&wp===4,runAmt,hs,fight,wp});
+ if(P.mxDashT>=0&&!P.flying&&MX.savedY!==undefined)mxGroundClamp();
  const pulse=.5+.5*Math.sin(t*4);core.scale.setScalar(1+pulse*.25);coreGlow.material.opacity=.55+pulse*.45;coreLight.intensity=1.6+pulse*1.6;coreMat.color.setRGB(2.2+pulse,.6+pulse*.3,3.2+pulse);
  capeMat.uniforms.uTime.value=t;capeMat.uniforms.uSpeed.value=lerp(capeMat.uniforms.uSpeed.value,clamp(Math.hypot(P.vel.x,P.vel.y,P.vel.z)/30,0,1),dt*4);capeMat.uniforms.uFly.value=lerp(capeMat.uniforms.uFly.value,P.flying?1:0,dt*3);
  galaxyBladeMat.uniforms.uTime.value=t;scarMat.uniforms.uTime.value=t;
@@ -1983,7 +2012,7 @@ function updateBoss(B,dt){B.t+=dt;B.flash-=dt;const fk=B.flash>0?1.6:0;
  const bdt=dt*(B.slowT>0?.65:1)*(B.stunT>0?0:1)*B.speedMul;
  if(B.stunT>0&&Math.random()<.35){const f=B.focus(tmpA).clone();bolt(f.clone().add(v3(rnd(-4,4),rnd(-4,4),rnd(-4,4))),f.clone().add(v3(rnd(-4,4),rnd(-4,4),rnd(-4,4))),.6);}
  B.anim(dt,bdt);
- if(B.active&&!B.dying){B.ai(bdt);
+ if(B.active&&!B.dying){BPAL.on=B.id;try{B.ai(bdt);}finally{BPAL.on=null;}
   const ch=pChest(tmpC);if(B.contactCd<=0)for(const s of B.sph){if(s.p.distanceTo(ch)<s.r+.7){B.contactCd=.8;hurtPlayer(B.contact||80,s.p);break;}}
   if(B.phases)for(const ph of B.phases){if(!ph.done&&B.hp<=B.maxHp*ph.at){ph.done=true;B.ck=Math.round(B.maxHp*ph.at);B.phase++;ph.fn();}}
   if(B.hp<=0)bossDeath(B);}}
